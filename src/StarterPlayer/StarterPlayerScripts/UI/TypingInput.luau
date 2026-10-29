@@ -3,9 +3,11 @@
 -- Keyboard: a hidden TextBox with live per-character colouring. Touch/gamepad: tap the prompt's words in order.
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextService = game:GetService("TextService")
 local UserInputService = game:GetService("UserInputService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local Juice = require(script.Parent:WaitForChild("Juice"))
 local Theme = require(script.Parent:WaitForChild("Theme"))
 
 export type Mode = "Keyboard" | "Touch"
@@ -19,6 +21,8 @@ export type TypingField = {
 }
 
 local CLICK_SOUND = "rbxasset://sounds/clickfast.wav"
+local SUCCESS_SOUND = "rbxasset://sounds/electronicpingshort.wav"
+local SUCCESS_TEXT = "CLEAN ✓"
 
 local TypingInput = {}
 
@@ -70,9 +74,46 @@ local function createKeyboard(parent: GuiObject): TypingField
 	local editing = false
 	local submitted = false
 
-	local label = Theme.Text(parent, "", 22)
+	local typedLength = 0
+
+	-- The holder sits in the parent's layout; the label inside it is free to shake and scale.
+	local holder = Instance.new("Frame")
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.new(1, 0, 0, 60)
+	holder.ClipsDescendants = false
+	holder.Parent = parent
+
+	local flash = Instance.new("Frame")
+	flash.Size = UDim2.fromScale(1, 1)
+	flash.BackgroundTransparency = 1
+	flash.BorderSizePixel = 0
+	flash.Parent = holder
+
+	local label = Theme.Text(holder, "", 22)
 	label.RichText = true
-	label.Size = UDim2.new(1, 0, 0, 60)
+	label.AutomaticSize = Enum.AutomaticSize.None
+	label.Size = UDim2.fromScale(1, 1)
+	label.TextYAlignment = Enum.TextYAlignment.Top
+
+	-- shortcut: assumes monospace Code font and character wrapping, so sparks drift a little on word-wrapped lines; measure real glyph positions if that reads wrong
+	local function charPosition(index: number): UDim2
+		local glyph = TextService:GetTextSize("a", label.TextSize, label.Font, Vector2.new(math.huge, math.huge))
+		local columns = math.max(1, math.floor(label.AbsoluteSize.X / glyph.X))
+		local row = (index - 1) // columns
+		local column = (index - 1) % columns
+		return UDim2.fromOffset((column + 0.5) * glyph.X, (row + 0.5) * glyph.Y)
+	end
+
+	local wrong = Instance.new("Sound")
+	wrong.SoundId = CLICK_SOUND
+	wrong.PlaybackSpeed = 0.55
+	wrong.Volume = 0.6
+	wrong.Parent = holder
+
+	local done = Instance.new("Sound")
+	done.SoundId = SUCCESS_SOUND
+	done.Volume = 0.5
+	done.Parent = holder
 
 	local box = Instance.new("TextBox")
 	box.Size = UDim2.fromScale(1, 1)
@@ -106,7 +147,6 @@ local function createKeyboard(parent: GuiObject): TypingField
 			return
 		end
 		local typed = string.lower(box.Text)
-		click:Play()
 
 		-- A finished word may be a bug's name; if the battle eats it, remove it from the buffer.
 		local word = string.match(typed, "(%S+) $")
@@ -119,7 +159,23 @@ local function createKeyboard(parent: GuiObject): TypingField
 		end
 
 		label.Text = renderPrompt(prompt, typed)
+
+		-- Feedback only for a newly typed character, not for deletes or bug words removed from the buffer.
+		if prompt ~= "" and #typed == typedLength + 1 and #typed <= #prompt then
+			if string.sub(typed, #typed, #typed) == string.sub(prompt, #typed, #typed) then
+				click:Play()
+				Juice.Pop(label, 0.03)
+				Juice.Spark(holder, charPosition(#typed), Theme.TYPED)
+			else
+				wrong:Play()
+				Juice.Shake(label, flash)
+			end
+		end
+		typedLength = #typed
+
 		if prompt ~= "" and typed == prompt then
+			done:Play()
+			Juice.Bounce(label, holder, SUCCESS_TEXT)
 			submit()
 		end
 	end)
@@ -141,6 +197,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 		SetPrompt = function(self: TypingField, text: string)
 			prompt = text
 			submitted = false
+			typedLength = 0
 			editing = true
 			box.Text = ""
 			editing = false
@@ -149,6 +206,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 		end,
 		Clear = function(self: TypingField)
 			submitted = false
+			typedLength = 0
 			editing = true
 			box.Text = ""
 			editing = false
@@ -156,7 +214,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 		end,
 		Destroy = function(self: TypingField)
 			active = false
-			label:Destroy()
+			holder:Destroy()
 		end,
 		OnSubmit = nil,
 		OnWord = nil,
@@ -174,7 +232,14 @@ local function createTouch(parent: GuiObject): TypingField
 	holder.Size = UDim2.new(1, 0, 0, 150)
 	holder.Parent = parent
 
+	local flash = Instance.new("Frame")
+	flash.Size = UDim2.new(1, 0, 0, 40)
+	flash.BackgroundTransparency = 1
+	flash.BorderSizePixel = 0
+	flash.Parent = holder
+
 	local typedLabel = Theme.Text(holder, "", 18, Theme.TYPED)
+	typedLabel.AutomaticSize = Enum.AutomaticSize.None
 	typedLabel.Size = UDim2.new(1, 0, 0, 40)
 
 	local chips = Instance.new("Frame")
@@ -190,6 +255,7 @@ local function createTouch(parent: GuiObject): TypingField
 	grid.Parent = chips
 
 	local rng = Random.new()
+	local expected: { string } = {}
 
 	-- Gamepad players move a selection cursor over the chips; keep it on the next untapped one.
 	local function selectNextChip()
@@ -218,6 +284,7 @@ local function createTouch(parent: GuiObject): TypingField
 		typedLabel.Text = ""
 		local words = string.split(text, " ")
 		wordCount = #words
+		expected = words
 		for _, word in words do
 			local chip = Theme.Button(chips, word, 16)
 			chip.LayoutOrder = rng:NextInteger(1, 1000)
@@ -227,10 +294,19 @@ local function createTouch(parent: GuiObject): TypingField
 				end
 				chip.Active = false
 				chip.TextTransparency = 0.6
+				if word == expected[#buffer + 1] then
+					Juice.Pop(chip, 0.15)
+					Juice.Spark(holder, UDim2.fromScale(math.min(#buffer / math.max(wordCount, 1) + 0.05, 0.95), 0.12), Theme.TYPED)
+				else
+					Juice.Shake(typedLabel, flash)
+				end
 				table.insert(buffer, word)
 				typedLabel.Text = table.concat(buffer, " ")
 				selectNextChip()
 				if #buffer >= wordCount then
+					if table.concat(buffer, " ") == table.concat(expected, " ") then
+						Juice.Bounce(typedLabel, holder, SUCCESS_TEXT)
+					end
 					local onSubmit = field.OnSubmit
 					local text = prepare(table.concat(buffer, " "))
 					if onSubmit and text then
