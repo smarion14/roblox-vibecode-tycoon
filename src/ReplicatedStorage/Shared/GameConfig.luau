@@ -58,15 +58,26 @@ GameConfig.HIRES = {
 
 GameConfig.BURST_PROMPT_COUNT = 3
 
+-- Countdown: starts at TimeLimit. A clean prompt (accuracy >= CleanAccuracy) adds
+-- CleanBonus + BonusPerPrompt * (n - 1) seconds; a sloppy one removes ErrorPenalty.
 GameConfig.BURST_RULES = {
-	TimeLimit = 10,
+	TimeLimit = 12,
 	LatencyGrace = 0.5,
 	MaxCharsPerSecond = 20,
 	ForgivenEditsPerBurst = 0,
+	CleanAccuracy = 0.9,
+	CleanBonus = 6,
+	BonusPerPrompt = 2,
+	ErrorPenalty = 1.5,
 }
 
+-- Battle countdown works like the burst one; CleanPromptAccuracy decides what counts as clean.
 GameConfig.BATTLE_RULES = {
 	ShipPromptsRequired = 4,
+	TimeLimit = 25,
+	CleanBonus = 8,
+	BonusPerPrompt = 2,
+	ErrorPenalty = 2,
 	BugTravelTime = 6,
 	FirstBugDelay = 2,
 	LatencyGrace = 0.25,

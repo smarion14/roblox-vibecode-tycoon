@@ -76,10 +76,10 @@ tests["gear"] = function()
 		{ MechanicalKeyboard = true, ModelV2 = true },
 		GameConfig.GEAR
 	)
-	assert(rules.TimeLimit == 12)
+	assert(rules.TimeLimit == GameConfig.BURST_RULES.TimeLimit + 2)
 	assert(rules.ForgivenEditsPerBurst == 1)
 	assert(preview == false)
-	assert(GameConfig.BURST_RULES.TimeLimit == 10, "base rules mutated")
+	assert(rules ~= GameConfig.BURST_RULES, "base rules mutated")
 	local _, monitorPreview = Economy.ApplyGear(GameConfig.BURST_RULES, { SecondMonitor = true }, GameConfig.GEAR)
 	assert(monitorPreview == true)
 end

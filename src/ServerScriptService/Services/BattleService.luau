@@ -26,7 +26,11 @@ type ActiveBattle = {
 local TICK_SECONDS = 0.1
 local PROMPT_RATE_LIMIT = 5
 local SQUASH_RATE_LIMIT = 15
-local JUDGE: BattleState.Judge = { Accuracy = TypingJudge.Accuracy, IsPlausible = TypingJudge.IsPlausible }
+local JUDGE: BattleState.Judge = {
+	Accuracy = TypingJudge.Accuracy,
+	IsPlausible = TypingJudge.IsPlausible,
+	TimeAdjustment = TypingJudge.TimeAdjustment,
+}
 
 local BattleService = {}
 
@@ -140,6 +144,7 @@ local function onDeployTerminal(player: Player)
 	StartupDataModule.SetActivity(player, "Battle")
 	RemoteManager.FireClient(RemoteNames.BattleStarted, player, {
 		ServerStart = serverStart,
+		DeadlineOffset = battle.Deadline - clockStart,
 		ClientName = job.Name,
 		PromptText = battle.Prompts[1],
 		Mood = battle.Mood,

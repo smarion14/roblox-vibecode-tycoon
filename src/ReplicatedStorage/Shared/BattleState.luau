@@ -4,6 +4,10 @@
 
 export type BattleRules = {
 	ShipPromptsRequired: number,
+	TimeLimit: number,
+	CleanBonus: number,
+	BonusPerPrompt: number,
+	ErrorPenalty: number,
 	BugTravelTime: number,
 	FirstBugDelay: number,
 	LatencyGrace: number,
@@ -19,6 +23,11 @@ export type BattleRules = {
 export type Judge = {
 	Accuracy: (expected: string, typed: string, forgivenEdits: number) -> number,
 	IsPlausible: (charCount: number, elapsed: number, maxCharsPerSecond: number) -> boolean,
+	TimeAdjustment: (
+		accuracy: number,
+		promptNumber: number,
+		rules: { CleanAccuracy: number, CleanBonus: number, BonusPerPrompt: number, ErrorPenalty: number }
+	) -> number,
 }
 
 export type BugState = "Pending" | "Squashed" | "Hit"
@@ -35,6 +44,7 @@ export type Bug = {
 
 export type Battle = {
 	StartTime: number,
+	Deadline: number,
 	Mood: number,
 	Combo: number,
 	MaxCombo: number,
@@ -64,6 +74,7 @@ export type BattleSnapshot = {
 	BugStates: { [number]: BugState },
 	Status: BattleStatus,
 	PromptsJudged: number,
+	DeadlineOffset: number,
 }
 
 local BASE_MOOD = 70
@@ -114,6 +125,7 @@ function BattleState.New(
 
 	return {
 		StartTime = startTime,
+		Deadline = startTime + rules.TimeLimit,
 		Mood = math.clamp(BASE_MOOD + MOOD_PER_QUALITY * avgQuality, BASE_MOOD, MAX_MOOD),
 		Combo = 0,
 		MaxCombo = 0,
@@ -142,7 +154,8 @@ function BattleState.Tick(b: Battle, now: number)
 		end
 	end
 
-	if b.Mood <= 0 or now > b.StartTime + b.Rules.MaxDuration then
+	local outOfTime = now > b.Deadline + b.Rules.LatencyGrace or now > b.StartTime + b.Rules.MaxDuration
+	if b.Mood <= 0 or outOfTime then
 		b.Status = "Failed"
 	end
 end
@@ -195,6 +208,13 @@ function BattleState.SubmitPrompt(b: Battle, text: string, now: number, judge: J
 		accuracy = judge.Accuracy(prompt, text, 0)
 	end
 
+	b.Deadline += judge.TimeAdjustment(accuracy, b.Progress + 1, {
+		CleanAccuracy = rules.CleanPromptAccuracy,
+		CleanBonus = rules.CleanBonus,
+		BonusPerPrompt = rules.BonusPerPrompt,
+		ErrorPenalty = rules.ErrorPenalty,
+	})
+
 	if accuracy < rules.MinPromptAccuracy then
 		b.Mood -= rules.BadPromptPenalty
 		b.Combo = 0
@@ -240,6 +260,7 @@ function BattleState.Snapshot(b: Battle): BattleSnapshot
 		BugStates = bugStates,
 		Status = b.Status,
 		PromptsJudged = b.PromptsJudged,
+		DeadlineOffset = b.Deadline - b.StartTime,
 	}
 end
 

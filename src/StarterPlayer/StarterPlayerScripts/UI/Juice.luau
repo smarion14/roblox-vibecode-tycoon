@@ -92,6 +92,35 @@ function Juice.Pop(target: GuiObject, amount: number)
 	TweenService:Create(scale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
+-- Short text that pops up and floats away, like "+6s" next to a timer.
+function Juice.FloatText(layer: GuiObject, position: UDim2, text: string, color: Color3)
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = position
+	label.Size = UDim2.fromOffset(90, 26)
+	label.Font = Theme.FONT
+	label.TextSize = 22
+	label.TextColor3 = color
+	label.TextStrokeTransparency = 0.4
+	label.Text = text
+	label.ZIndex = 12
+	label.Parent = layer
+
+	local scale = scaleOf(label)
+	scale.Scale = 0.4
+	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.15 }):Play()
+	local rise = TweenService:Create(label, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = position + UDim2.fromOffset(0, -34),
+		TextTransparency = 1,
+		TextStrokeTransparency = 1,
+	})
+	rise.Completed:Once(function()
+		label:Destroy()
+	end)
+	rise:Play()
+end
+
 -- Appears from nothing with an overshoot, for things spawning in.
 function Juice.PopIn(target: GuiObject)
 	local scale = scaleOf(target)

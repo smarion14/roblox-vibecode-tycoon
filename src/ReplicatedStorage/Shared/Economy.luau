@@ -28,6 +28,10 @@ export type BurstRules = {
 	LatencyGrace: number,
 	MaxCharsPerSecond: number,
 	ForgivenEditsPerBurst: number,
+	CleanAccuracy: number,
+	CleanBonus: number,
+	BonusPerPrompt: number,
+	ErrorPenalty: number,
 }
 
 local GRADE_VALUE: { [string]: number } = { S = 3, A = 2, B = 1, C = 0 }

@@ -27,6 +27,8 @@ type ActiveBurst = {
 	Finished: boolean,
 }
 
+local WATCH_SECONDS = 0.1
+
 local BurstService = {}
 
 local bursts: { [Player]: ActiveBurst } = {}
@@ -41,13 +43,18 @@ local function pickPrompts(component: string, count: number): { string }
 	return picked
 end
 
-local function issue(player: Player, burst: ActiveBurst, index: number)
+local function deadlineOf(burst: ActiveBurst): number
+	return TypingJudge.BurstDeadline(burst.Prompts, burst.Submissions, burst.Rules)
+end
+
+-- timeDelta is how much the last judged prompt moved the countdown, so the client can show "+6s" or "-1.5s".
+local function issue(player: Player, burst: ActiveBurst, index: number, timeDelta: number)
 	local now = os.clock()
 	burst.Current = index
 	burst.Prompts[index] = { Text = burst.Texts[index], IssuedAt = now }
 	local nextText = if burst.Preview then burst.Texts[index + 1] else nil
-	local timeLeft = burst.Rules.TimeLimit - (now - burst.StartedAt)
-	RemoteManager.FireClient(RemoteNames.BurstPrompt, player, index, burst.Texts[index], nextText, timeLeft)
+	local timeLeft = deadlineOf(burst) - now
+	RemoteManager.FireClient(RemoteNames.BurstPrompt, player, index, burst.Texts[index], nextText, timeLeft, timeDelta)
 end
 
 local function finish(player: Player, burst: ActiveBurst)
@@ -101,8 +108,18 @@ local function onStation(player: Player, part: BasePart)
 	}
 	bursts[player] = burst
 	StartupDataModule.SetActivity(player, "Burst")
-	issue(player, burst, 1)
-	task.delay(rules.TimeLimit + rules.LatencyGrace, finish, player, burst)
+	issue(player, burst, 1, 0)
+
+	-- The deadline moves as prompts are judged, so watch it instead of a fixed delay.
+	task.spawn(function()
+		while not burst.Finished and bursts[player] == burst do
+			if os.clock() > deadlineOf(burst) + rules.LatencyGrace then
+				finish(player, burst)
+				break
+			end
+			task.wait(WATCH_SECONDS)
+		end
+	end)
 end
 
 local function onSubmit(player: Player, index: any, text: any)
@@ -116,9 +133,10 @@ local function onSubmit(player: Player, index: any, text: any)
 		return
 	end
 
+	local before = deadlineOf(burst)
 	burst.Submissions[index] = { Text = text, ReceivedAt = os.clock() }
 	if index < #burst.Texts then
-		issue(player, burst, index + 1)
+		issue(player, burst, index + 1, deadlineOf(burst) - before)
 	else
 		finish(player, burst)
 	end

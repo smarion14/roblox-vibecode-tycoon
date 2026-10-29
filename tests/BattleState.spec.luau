@@ -5,7 +5,11 @@ local PromptBank = require("../src/ReplicatedStorage/Shared/PromptBank")
 local TypingJudge = require("../src/ReplicatedStorage/Shared/TypingJudge")
 
 local RULES = GameConfig.BATTLE_RULES
-local JUDGE: BattleState.Judge = { Accuracy = TypingJudge.Accuracy, IsPlausible = TypingJudge.IsPlausible }
+local JUDGE: BattleState.Judge = {
+	Accuracy = TypingJudge.Accuracy,
+	IsPlausible = TypingJudge.IsPlausible,
+	TimeAdjustment = TypingJudge.TimeAdjustment,
+}
 
 -- Deterministic stand-in for Random: steps through (n * 0.37) % 1 so consecutive bugs get different words.
 local function makeRng(): () -> number
@@ -110,9 +114,39 @@ tests["fails at zero mood"] = function()
 	assert(b.Status == "Failed", `status {b.Status}`)
 end
 
-tests["fails on timeout"] = function()
+local function quietRules(): BattleState.BattleRules
 	local rules = table.clone(RULES)
-	rules.BugTravelTime = 1000
+	rules.BugTravelTime = 1000 -- bugs never arrive, so only the timer matters
+	return rules
+end
+
+tests["fails when the timer runs out"] = function()
+	local b = newBattle(3, quietRules())
+	assert(b.Deadline == RULES.TimeLimit)
+	BattleState.Tick(b, RULES.TimeLimit + 0.2)
+	assert(b.Status == "Running")
+	BattleState.Tick(b, RULES.TimeLimit + RULES.LatencyGrace + 0.01)
+	assert(b.Status == "Failed")
+end
+
+tests["clean prompt adds time scaled by prompt number"] = function()
+	local b = newBattle(3, quietRules())
+	BattleState.SubmitPrompt(b, b.Prompts[b.PromptIndex], 4, JUDGE)
+	assert(b.Deadline == RULES.TimeLimit + RULES.CleanBonus, `deadline {b.Deadline}`)
+	BattleState.SubmitPrompt(b, b.Prompts[b.PromptIndex], 8, JUDGE)
+	assert(b.Deadline == RULES.TimeLimit + 2 * RULES.CleanBonus + RULES.BonusPerPrompt, `deadline {b.Deadline}`)
+end
+
+tests["bad prompt costs a little time"] = function()
+	local b = newBattle(3, quietRules())
+	BattleState.SubmitPrompt(b, "zzzz", 1, JUDGE)
+	assert(b.Deadline == RULES.TimeLimit - RULES.ErrorPenalty, `deadline {b.Deadline}`)
+	assert(BattleState.Snapshot(b).DeadlineOffset == RULES.TimeLimit - RULES.ErrorPenalty)
+end
+
+tests["fails on timeout"] = function()
+	local rules = quietRules()
+	rules.TimeLimit = 1000 -- only the hard MaxDuration cap applies
 	local b = newBattle(3, rules)
 	BattleState.Tick(b, 119)
 	assert(b.Status == "Running")

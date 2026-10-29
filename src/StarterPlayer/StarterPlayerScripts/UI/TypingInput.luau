@@ -18,6 +18,7 @@ export type TypingField = {
 	Destroy: (self: TypingField) -> (),
 	OnSubmit: ((text: string) -> ())?,
 	OnWord: ((word: string) -> boolean)?,
+	OnPartial: ((partial: string) -> ())?,
 }
 
 local CLICK_SOUND = "rbxasset://sounds/clickfast.wav"
@@ -209,6 +210,10 @@ local function createKeyboard(parent: GuiObject): TypingField
 		end
 
 		paint(typed)
+		local onPartial = field.OnPartial
+		if onPartial then
+			onPartial(string.match(typed, "(%S*)$") or "")
+		end
 
 		-- Feedback only for a newly typed character, not for deletes or bug words removed from the buffer.
 		local letter = letters[#typed]
@@ -269,6 +274,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 		end,
 		OnSubmit = nil,
 		OnWord = nil,
+		OnPartial = nil,
 	}
 	return field
 end
@@ -388,6 +394,7 @@ local function createTouch(parent: GuiObject): TypingField
 		end,
 		OnSubmit = nil,
 		OnWord = nil,
+		OnPartial = nil,
 	}
 	return field
 end

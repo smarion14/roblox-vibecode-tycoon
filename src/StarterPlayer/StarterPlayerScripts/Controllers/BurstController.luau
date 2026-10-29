@@ -2,12 +2,14 @@
 -- Station burst panel: prompt, draining timer and the grade popup. The server sends each prompt and the grade.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
+local Juice = require(UI:WaitForChild("Juice"))
 local Theme = require(UI:WaitForChild("Theme"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
 
@@ -20,6 +22,11 @@ local panel: Frame
 local header: TextLabel
 local previewLabel: TextLabel
 local timerFill: Frame
+local timerBar: Frame
+local secondsLabel: TextLabel
+local deadline = 0
+local maxSeconds = 1
+local countdown: RBXScriptConnection? = nil
 local gradeLabel: TextLabel
 local field: TypingInput.TypingField? = nil
 local currentIndex = 0
@@ -30,9 +37,29 @@ local function closeField()
 		field:Destroy()
 		field = nil
 	end
+	if countdown then
+		countdown:Disconnect()
+		countdown = nil
+	end
 end
 
-local function onPrompt(index: any, text: any, nextText: any, timeLeft: any)
+-- Restarts the bar from the server's remaining time. The bar's full width is the most time seen this burst,
+-- so earned bonus time visibly refills it.
+local function startTimer(seconds: number)
+	if timerTween then
+		timerTween:Cancel()
+	end
+	maxSeconds = math.max(maxSeconds, seconds)
+	deadline = os.clock() + seconds
+	timerFill.Size = UDim2.fromScale(seconds / maxSeconds, 1)
+	local tween = TweenService:Create(timerFill, TweenInfo.new(seconds, Enum.EasingStyle.Linear), {
+		Size = UDim2.fromScale(0, 1),
+	})
+	tween:Play()
+	timerTween = tween
+end
+
+local function onPrompt(index: any, text: any, nextText: any, timeLeft: any, timeDelta: any)
 	if type(index) ~= "number" or type(text) ~= "string" then
 		return
 	end
@@ -47,17 +74,23 @@ local function onPrompt(index: any, text: any, nextText: any, timeLeft: any)
 		end
 		field = newField
 
-		if timerTween then
-			timerTween:Cancel()
-		end
-		local seconds = if type(timeLeft) == "number" then math.max(timeLeft, 0) else 10
-		timerFill.Size = UDim2.fromScale(1, 1)
-		local tween = TweenService:Create(timerFill, TweenInfo.new(seconds, Enum.EasingStyle.Linear), {
-			Size = UDim2.fromScale(0, 1),
-		})
-		tween:Play()
-		timerTween = tween
+		maxSeconds = 1
+		countdown = RunService.RenderStepped:Connect(function()
+			secondsLabel.Text = string.format("%.1fs", math.max(deadline - os.clock(), 0))
+		end)
 		gui.Enabled = true
+	end
+
+	startTimer(if type(timeLeft) == "number" then math.max(timeLeft, 0) else 0)
+	if type(timeDelta) == "number" and math.abs(timeDelta) > 0.01 then
+		local gained = timeDelta > 0
+		local deltaText = if gained then string.format("+%gs", timeDelta) else string.format("%gs", timeDelta)
+		Juice.FloatText(timerBar, UDim2.fromScale(1, -1), deltaText, if gained then Theme.TYPED else Theme.BUG)
+		if gained then
+			Juice.Pop(secondsLabel, 0.4)
+		else
+			Juice.Shake(secondsLabel, nil)
+		end
 	end
 
 	header.Text = `PROMPT {index}`
@@ -94,7 +127,14 @@ function BurstController.Init()
 	header = Theme.Text(panel, "", 14, Theme.MUTED)
 	header.LayoutOrder = -3
 
-	local timerBar = Instance.new("Frame")
+	secondsLabel = Theme.Text(header, "", 14, Theme.ACCENT)
+	secondsLabel.AnchorPoint = Vector2.new(1, 0)
+	secondsLabel.Position = UDim2.fromScale(1, 0)
+	secondsLabel.Size = UDim2.fromOffset(80, 18)
+	secondsLabel.AutomaticSize = Enum.AutomaticSize.None
+	secondsLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+	timerBar = Instance.new("Frame")
 	timerBar.Size = UDim2.new(1, 0, 0, 8)
 	timerBar.BackgroundColor3 = Theme.PANEL
 	timerBar.BorderSizePixel = 0

@@ -1,7 +1,25 @@
 --!strict
 local TypingJudge = require("../src/ReplicatedStorage/Shared/TypingJudge")
 
-local RULES = { TimeLimit = 10, LatencyGrace = 0.5, MaxCharsPerSecond = 20, ForgivenEditsPerBurst = 0 }
+-- Time bonuses off here so the original timing tests stay exact; the timer tests below turn them on.
+local RULES = {
+	TimeLimit = 10,
+	LatencyGrace = 0.5,
+	MaxCharsPerSecond = 20,
+	ForgivenEditsPerBurst = 0,
+	CleanAccuracy = 0.9,
+	CleanBonus = 0,
+	BonusPerPrompt = 0,
+	ErrorPenalty = 0,
+}
+
+local function timerRules(): TypingJudge.BurstRules
+	local rules = table.clone(RULES)
+	rules.CleanBonus = 6
+	rules.BonusPerPrompt = 2
+	rules.ErrorPenalty = 1.5
+	return rules
+end
 local TEXTS = {
 	"make the navbar sticky on scroll",
 	"add a dark mode toggle to the header",
@@ -106,6 +124,37 @@ tests["forgiven once per burst"] = function()
 	local result = TypingJudge.JudgeBurst(prompts, submissions, rules)
 	-- first prompt forgiven to 1.0, second 0.9 → mean 0.95
 	assert(math.abs(result.Accuracy - 0.95) < 1e-9, `accuracy {result.Accuracy}`)
+end
+
+tests["time adjustment scales with prompt number"] = function()
+	local rules = timerRules()
+	assert(TypingJudge.TimeAdjustment(1, 1, rules) == 6)
+	assert(TypingJudge.TimeAdjustment(0.95, 3, rules) == 10)
+	assert(TypingJudge.TimeAdjustment(0.5, 2, rules) == -1.5)
+end
+
+tests["clean prompts extend the deadline"] = function()
+	local submissions = perfectSubmissions()
+	submissions[3] = { Text = TEXTS[3], ReceivedAt = 12 } -- past the base 10s, inside 10 + 6 + 8
+	local result = TypingJudge.JudgeBurst(issued(), submissions, timerRules())
+	assert(result.Completed == 3, `completed {result.Completed}`)
+end
+
+tests["errors shorten the deadline"] = function()
+	local rules = table.clone(RULES)
+	rules.ErrorPenalty = 2
+	local submissions = {
+		{ Text = "zzzz", ReceivedAt = 2.9 },
+		{ Text = TEXTS[2], ReceivedAt = 9 }, -- fine against 10.5, late against 8.5
+	}
+	local result = TypingJudge.JudgeBurst(issued(), submissions, rules)
+	assert(result.Completed == 1, `completed {result.Completed}`)
+end
+
+tests["burst deadline"] = function()
+	local rules = timerRules()
+	assert(TypingJudge.BurstDeadline(issued(), {}, rules) == 10)
+	assert(TypingJudge.BurstDeadline(issued(), { { Text = TEXTS[1], ReceivedAt = 2.9 } }, rules) == 16)
 end
 
 return tests

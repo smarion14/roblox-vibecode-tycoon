@@ -23,11 +23,15 @@ type BugView = {
 	ReachOffset: number,
 	State: string,
 	Button: TextButton,
+	Stroke: UIStroke,
+	Hint: TextLabel,
 	Shown: boolean,
 }
 
 local RESULT_SECONDS = 3
 local BUG_LANES = 5
+local INSTRUCTION_KEYBOARD = "Bugs crawl toward YOUR CODE. Type a bug's name + SPACE to squash it."
+local INSTRUCTION_TOUCH = "Bugs crawl toward YOUR CODE. Tap a bug to squash it."
 local DANGER_TRAVEL = 0.75 -- past this share of the path a bug starts pulsing as a warning
 
 local REACTIONS = {
@@ -61,6 +65,13 @@ local pendingSubmit = false
 local lastJudged = 0
 local lastMoodBand = ""
 local lastCombo = 0
+local deadlineOffset = 0
+local timerMax = 1
+local partialWord = ""
+local squashedOnce = false
+local timerFill: Frame
+local timerLabel: TextLabel
+local instructionLabel: TextLabel
 local renderConnection: RBXScriptConnection? = nil
 
 local function serverElapsed(): number
@@ -121,6 +132,12 @@ end
 
 local function renderBugs()
 	local elapsed = serverElapsed()
+
+	local remaining = math.max(deadlineOffset - elapsed, 0)
+	timerLabel.Text = string.format("TIME LEFT  %.1fs", remaining)
+	timerFill.Size = UDim2.fromScale(math.clamp(remaining / timerMax, 0, 1), 1)
+	timerFill.BackgroundColor3 = if remaining < 5 then Theme.BUG else Theme.ACCENT
+
 	for _, bug in bugs do
 		local visible = bug.State == "Pending" and elapsed >= bug.SpawnOffset
 		bug.Button.Visible = visible
@@ -147,6 +164,15 @@ local function renderBugs()
 			bug.Button.BackgroundColor3 = if danger and math.sin(elapsed * 14) > 0
 				then Color3.fromRGB(120, 20, 40)
 				else Color3.fromRGB(42, 15, 28)
+
+			-- Targeting: the bug whose name you're typing lights up, so you know the squash is aimed right.
+			local targeted = partialWord ~= "" and string.sub(bug.Word, 1, #partialWord) == partialWord
+			bug.Stroke.Color = if targeted then Theme.TYPED else Theme.BUG
+			bug.Stroke.Thickness = if targeted then 3 else 1
+			bug.Button.TextColor3 = if targeted then Theme.TYPED else Theme.BUG
+
+			-- Until the first squash, each bug carries its own instruction.
+			bug.Hint.Visible = not squashedOnce
 		end
 	end
 end
@@ -163,11 +189,16 @@ local function onStarted(info: any)
 	setMood(tonumber(info.Mood) or 70)
 	comboLabel.Text = "x0"
 	lastCombo = 0
+	deadlineOffset = tonumber(info.DeadlineOffset) or 0
+	timerMax = math.max(deadlineOffset, 1)
+	partialWord = ""
+	squashedOnce = false
 	progressFill.Size = UDim2.fromScale(0, 1)
 	resultLabel.Visible = false
 	pendingSubmit = false
 	lastJudged = 0
 	mode = TypingInput.DetectMode()
+	instructionLabel.Text = if mode == "Touch" then INSTRUCTION_TOUCH else INSTRUCTION_KEYBOARD
 
 	for _, bug in info.Bugs do
 		local button = Instance.new("TextButton")
@@ -186,6 +217,18 @@ local function onStarted(info: any)
 		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		stroke.Parent = button
 
+		local hint = Instance.new("TextLabel")
+		hint.BackgroundTransparency = 1
+		hint.AnchorPoint = Vector2.new(0.5, 1)
+		hint.Position = UDim2.new(0.5, 0, 0, -4)
+		hint.Size = UDim2.fromOffset(160, 18)
+		hint.Font = Theme.FONT
+		hint.TextSize = 14
+		hint.TextColor3 = Theme.MOOD
+		hint.TextStrokeTransparency = 0.3
+		hint.Text = if mode == "Touch" then "tap me!" else `type "{bug.Word}" + SPACE`
+		hint.Parent = button
+
 		local view: BugView = {
 			Id = bug.Id,
 			Word = bug.Word,
@@ -194,6 +237,8 @@ local function onStarted(info: any)
 			ReachOffset = bug.ReachOffset,
 			State = "Pending",
 			Button = button,
+			Stroke = stroke,
+			Hint = hint,
 			Shown = false,
 		}
 		button.Activated:Connect(function()
@@ -212,6 +257,9 @@ local function onStarted(info: any)
 		end
 	end
 	newField.OnWord = trySquashWord
+	newField.OnPartial = function(partial: string)
+		partialWord = partial
+	end
 	field = newField
 	currentPrompt = tostring(info.PromptText)
 	newField:SetPrompt(currentPrompt)
@@ -240,6 +288,7 @@ local function onUpdate(snapshot: any)
 			local state = snapshot.BugStates[bug.Id]
 			if type(state) == "string" then
 				if bug.State == "Pending" and state == "Squashed" then
+					squashedOnce = true
 					Juice.Splat(bugLayer, bug.Button.Position)
 				elseif bug.State == "Pending" and state == "Hit" then
 					-- Contact: the bug got through. Shake the whole screen and flash it red.
@@ -247,6 +296,22 @@ local function onUpdate(snapshot: any)
 				end
 				bug.State = state
 			end
+		end
+	end
+
+	-- The countdown moved: clean prompts add time (more for later prompts), sloppy ones take a little.
+	local newOffset = tonumber(snapshot.DeadlineOffset)
+	if newOffset and math.abs(newOffset - deadlineOffset) > 0.01 then
+		local delta = newOffset - deadlineOffset
+		deadlineOffset = newOffset
+		timerMax = math.max(timerMax, deadlineOffset - serverElapsed())
+		local gained = delta > 0
+		local deltaText = if gained then string.format("+%gs", delta) else string.format("%gs", delta)
+		Juice.FloatText(timerLabel, UDim2.fromScale(0.5, 0.5), deltaText, if gained then Theme.TYPED else Theme.BUG)
+		if gained then
+			Juice.Pop(timerLabel, 0.3)
+		else
+			Juice.Shake(timerLabel, nil)
 		end
 	end
 
@@ -333,21 +398,42 @@ function BattleController.Init()
 
 	local top = Instance.new("Frame")
 	top.BackgroundTransparency = 1
-	top.Size = UDim2.new(1, 0, 0, 60)
+	top.Size = UDim2.new(1, 0, 0, 104)
 	top.Parent = centre
 	Theme.List(top, 4)
+	instructionLabel = Theme.Text(top, INSTRUCTION_KEYBOARD, 14, Theme.MOOD)
+	instructionLabel.LayoutOrder = 0
 	Theme.Text(top, "SHIP PROGRESS", 12, Theme.MUTED).LayoutOrder = 1
 	progressFill = bar(top, Theme.TYPED, 2)
+	timerLabel = Theme.Text(top, "TIME LEFT", 12, Theme.ACCENT)
+	timerLabel.LayoutOrder = 3
+	timerFill = bar(top, Theme.ACCENT, 4)
 
 	comboLabel = Theme.Text(centre, "x0", 34, Theme.ACCENT)
-	comboLabel.Position = UDim2.fromOffset(0, 62)
+	comboLabel.Position = UDim2.fromOffset(0, 106)
 	comboLabel.TextXAlignment = Enum.TextXAlignment.Right
 
 	bugLayer = Instance.new("Frame")
 	bugLayer.BackgroundTransparency = 1
-	bugLayer.Position = UDim2.fromOffset(0, 110)
-	bugLayer.Size = UDim2.new(1, 0, 1, -280)
+	bugLayer.Position = UDim2.fromOffset(0, 150)
+	bugLayer.Size = UDim2.new(1, 0, 1, -320)
 	bugLayer.Parent = centre
+
+	-- The target: bugs converge on this line. Keep them off it.
+	local codeLine = Instance.new("Frame")
+	codeLine.AnchorPoint = Vector2.new(0.5, 0)
+	codeLine.Position = UDim2.fromScale(0.5, 0)
+	codeLine.Size = UDim2.new(0, 4, 1, 0)
+	codeLine.BackgroundColor3 = Theme.ACCENT
+	codeLine.BackgroundTransparency = 0.35
+	codeLine.BorderSizePixel = 0
+	codeLine.Parent = bugLayer
+	local codeLabel = Theme.Text(bugLayer, "▼ YOUR CODE ▼", 12, Theme.ACCENT)
+	codeLabel.AnchorPoint = Vector2.new(0.5, 1)
+	codeLabel.Position = UDim2.fromScale(0.5, 0)
+	codeLabel.Size = UDim2.fromOffset(140, 16)
+	codeLabel.AutomaticSize = Enum.AutomaticSize.None
+	codeLabel.TextXAlignment = Enum.TextXAlignment.Center
 
 	promptHolder = Instance.new("Frame")
 	promptHolder.BackgroundTransparency = 1
