@@ -135,6 +135,9 @@ tests["snapshot"] = function()
 	assert(snapshot.PromptText == b.Prompts[1])
 	assert(snapshot.BugStates[b.Bugs[1].Id] == "Squashed")
 	assert(snapshot.Status == "Running")
+	assert(snapshot.PromptsJudged == 0)
+	BattleState.SubmitPrompt(b, "zzzz", 3.5, JUDGE)
+	assert(BattleState.Snapshot(b).PromptsJudged == 1)
 end
 
 return tests

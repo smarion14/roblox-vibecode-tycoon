@@ -62,6 +62,7 @@ export type BattleSnapshot = {
 	PromptText: string,
 	BugStates: { [number]: BugState },
 	Status: BattleStatus,
+	PromptsJudged: number,
 }
 
 local BASE_MOOD = 70
@@ -226,6 +227,7 @@ function BattleState.Snapshot(b: Battle): BattleSnapshot
 		PromptText = b.Prompts[b.PromptIndex],
 		BugStates = bugStates,
 		Status = b.Status,
+		PromptsJudged = b.PromptsJudged,
 	}
 end
 
