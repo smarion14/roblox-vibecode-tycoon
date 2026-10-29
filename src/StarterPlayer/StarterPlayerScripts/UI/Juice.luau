@@ -50,7 +50,42 @@ function Juice.Spark(layer: GuiObject, position: UDim2, color: Color3)
 	tween:Play()
 end
 
--- Quick scale tick, for the prompt line on each correct key.
+local function homeOf(target: GuiObject): UDim2
+	local home = target:GetAttribute("JuiceHome")
+	if typeof(home) == "UDim2" then
+		return home
+	end
+	target:SetAttribute("JuiceHome", target.Position)
+	return target.Position
+end
+
+-- A typed letter lands: it springs up big, then drops back into place with a bounce.
+function Juice.Hop(letter: GuiObject)
+	local home = homeOf(letter)
+	local scale = scaleOf(letter)
+	letter.Position = home + UDim2.fromOffset(0, -14)
+	letter.Rotation = rng:NextInteger(-12, 12)
+	scale.Scale = 1.6
+	TweenService:Create(letter, TweenInfo.new(0.4, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
+		Position = home,
+		Rotation = 0,
+	}):Play()
+	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+-- Every letter hops in sequence, left to right, like a wave running through the line.
+function Juice.Wave(letters: { GuiObject })
+	for index, letter in letters do
+		task.delay(index * 0.012, Juice.Hop, letter)
+	end
+end
+
+-- Smoothly moves the typing cursor to the next letter.
+function Juice.Slide(target: GuiObject, position: UDim2)
+	TweenService:Create(target, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = position }):Play()
+end
+
+-- Quick scale tick, for touch chips on a correct tap.
 function Juice.Pop(target: GuiObject, amount: number)
 	local scale = scaleOf(target)
 	scale.Scale = 1 + amount
@@ -59,19 +94,16 @@ end
 
 -- Horizontal shake plus a red flash behind the target. The target must not be positioned by a UILayout.
 function Juice.Shake(target: GuiObject, flash: GuiObject)
-	local home = target:GetAttribute("JuiceHome")
-	if typeof(home) ~= "UDim2" then
-		home = target.Position
-		target:SetAttribute("JuiceHome", home)
-	end
-	local origin = home :: UDim2
+	local origin = homeOf(target)
 
 	task.spawn(function()
-		for _, offset in SHAKE_OFFSETS do
-			target.Position = origin + UDim2.fromOffset(offset, 0)
+		for step, offset in SHAKE_OFFSETS do
+			target.Position = origin + UDim2.fromOffset(offset, if step % 2 == 0 then 2 else -2)
+			target.Rotation = offset * 1.5
 			task.wait(SHAKE_STEP_SECONDS)
 		end
 		target.Position = origin
+		target.Rotation = 0
 	end)
 
 	flash.BackgroundColor3 = Theme.BUG

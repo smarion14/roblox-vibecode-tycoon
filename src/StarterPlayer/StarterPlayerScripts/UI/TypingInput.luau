@@ -1,6 +1,6 @@
 --!strict
 -- Shared typing field for bursts and battles.
--- Keyboard: a hidden TextBox with live per-character colouring. Touch/gamepad: tap the prompt's words in order.
+-- Keyboard: a hidden TextBox driving one animated label per letter. Touch/gamepad: tap the prompt's words in order.
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextService = game:GetService("TextService")
@@ -38,10 +38,6 @@ local function prepare(text: string): string?
 	return string.sub(text, 1, GameConfig.MAX_REMOTE_STRING)
 end
 
-local function hex(color: Color3): string
-	return "#" .. color:ToHex()
-end
-
 function TypingInput.DetectMode(): Mode
 	if usingGamepad() or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
 		return "Touch"
@@ -49,22 +45,51 @@ function TypingInput.DetectMode(): Mode
 	return "Keyboard"
 end
 
--- Colours the prompt by what has been typed so far: correct, wrong, current, remaining.
-local function renderPrompt(prompt: string, typed: string): string
-	local parts: { string } = {}
-	for i = 1, #prompt do
-		local char = string.sub(prompt, i, i)
-		local shown = if char == " " then " " else char
-		if i <= #typed then
-			local color = if string.sub(typed, i, i) == char then Theme.TYPED else Theme.BUG
-			table.insert(parts, `<font color="{hex(color)}">{shown}</font>`)
-		elseif i == #typed + 1 then
-			table.insert(parts, `<u><font color="#ffffff">{shown}</font></u>`)
-		else
-			table.insert(parts, `<font color="{hex(Theme.TODO)}">{shown}</font>`)
+local LETTER_SIZE = 24
+local LINE_GAP = 6
+
+type Letter = {
+	Char: string,
+	Label: TextLabel,
+	Home: UDim2,
+}
+
+-- One TextLabel per character so each letter can hop, pop and shake on its own.
+local function buildLetters(container: Frame, prompt: string): { Letter }
+	local glyph = TextService:GetTextSize("a", LETTER_SIZE, Theme.FONT, Vector2.new(math.huge, math.huge))
+	-- shortcut: a frame not laid out yet reports ~0 width, so fall back to 600px; re-wrap on AbsoluteSize change if panels get resizable
+	local width = container.AbsoluteSize.X
+	if width < glyph.X * 10 then
+		width = 600
+	end
+	local columns = math.max(1, math.floor(width / glyph.X))
+	local letters: { Letter } = {}
+	local column, row = 0, 0
+
+	-- Word wrap: a word that won't fit on the current line moves to the next one.
+	for word, space in string.gmatch(prompt, "(%S+)(%s*)") do
+		if column > 0 and column + #word > columns then
+			column, row = 0, row + 1
+		end
+		for char in string.gmatch((word :: string) .. (space :: string), ".") do
+			local home = UDim2.fromOffset(column * glyph.X, row * (glyph.Y + LINE_GAP))
+			local label = Instance.new("TextLabel")
+			label.BackgroundTransparency = 1
+			label.Size = UDim2.fromOffset(glyph.X, glyph.Y)
+			label.Position = home
+			label.Font = Theme.FONT
+			label.TextSize = LETTER_SIZE
+			label.Text = char
+			label.TextColor3 = Theme.TODO
+			label:SetAttribute("JuiceHome", home)
+			label.Parent = container
+			table.insert(letters, { Char = char, Label = label, Home = home })
+			column += 1
 		end
 	end
-	return table.concat(parts)
+
+	container.Size = UDim2.new(1, 0, 0, (row + 1) * (glyph.Y + LINE_GAP))
+	return letters
 end
 
 local function createKeyboard(parent: GuiObject): TypingField
@@ -73,14 +98,14 @@ local function createKeyboard(parent: GuiObject): TypingField
 	local active = true
 	local editing = false
 	local submitted = false
-
 	local typedLength = 0
+	local letters: { Letter } = {}
 
-	-- The holder sits in the parent's layout; the label inside it is free to shake and scale.
+	-- The holder sits in the parent's layout; letters inside it are free to move.
 	local holder = Instance.new("Frame")
 	holder.BackgroundTransparency = 1
 	holder.Size = UDim2.new(1, 0, 0, 60)
-	holder.ClipsDescendants = false
+	holder.AutomaticSize = Enum.AutomaticSize.Y
 	holder.Parent = parent
 
 	local flash = Instance.new("Frame")
@@ -89,20 +114,32 @@ local function createKeyboard(parent: GuiObject): TypingField
 	flash.BorderSizePixel = 0
 	flash.Parent = holder
 
-	local label = Theme.Text(holder, "", 22)
-	label.RichText = true
-	label.AutomaticSize = Enum.AutomaticSize.None
-	label.Size = UDim2.fromScale(1, 1)
-	label.TextYAlignment = Enum.TextYAlignment.Top
+	local lettersFrame = Instance.new("Frame")
+	lettersFrame.BackgroundTransparency = 1
+	lettersFrame.Size = UDim2.new(1, 0, 0, 60)
+	lettersFrame.Parent = holder
 
-	-- shortcut: assumes monospace Code font and character wrapping, so sparks drift a little on word-wrapped lines; measure real glyph positions if that reads wrong
-	local function charPosition(index: number): UDim2
-		local glyph = TextService:GetTextSize("a", label.TextSize, label.Font, Vector2.new(math.huge, math.huge))
-		local columns = math.max(1, math.floor(label.AbsoluteSize.X / glyph.X))
-		local row = (index - 1) // columns
-		local column = (index - 1) % columns
-		return UDim2.fromOffset((column + 0.5) * glyph.X, (row + 0.5) * glyph.Y)
-	end
+	local cursor = Instance.new("Frame")
+	cursor.BackgroundColor3 = Theme.ACCENT
+	cursor.BorderSizePixel = 0
+	cursor.Size = UDim2.fromOffset(12, 3)
+	cursor.ZIndex = 3
+	cursor.Parent = lettersFrame
+
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.fromScale(1, 1)
+	box.BackgroundTransparency = 1
+	box.TextTransparency = 1
+	box.ClearTextOnFocus = false
+	box.TextEditable = true
+	box.Text = ""
+	box.ZIndex = 5
+	box.Parent = holder
+
+	local click = Instance.new("Sound")
+	click.SoundId = CLICK_SOUND
+	click.Volume = 0.4
+	click.Parent = holder
 
 	local wrong = Instance.new("Sound")
 	wrong.SoundId = CLICK_SOUND
@@ -115,21 +152,34 @@ local function createKeyboard(parent: GuiObject): TypingField
 	done.Volume = 0.5
 	done.Parent = holder
 
-	local box = Instance.new("TextBox")
-	box.Size = UDim2.fromScale(1, 1)
-	box.BackgroundTransparency = 1
-	box.TextTransparency = 1
-	box.ClearTextOnFocus = false
-	box.TextEditable = true
-	box.Text = ""
-	box.Parent = label
+	-- Colours every letter for the typed buffer and slides the cursor under the next one.
+	local function paint(typed: string)
+		for index, letter in letters do
+			local color = Theme.TODO
+			if index <= #typed then
+				color = if string.sub(typed, index, index) == letter.Char then Theme.TYPED else Theme.BUG
+			elseif index == #typed + 1 then
+				color = Theme.TEXT
+			end
+			letter.Label.TextColor3 = color
+		end
 
-	local click = Instance.new("Sound")
-	click.SoundId = CLICK_SOUND
-	click.Volume = 0.4
-	click.Parent = label
+		local next = letters[#typed + 1]
+		cursor.Visible = next ~= nil
+		if next then
+			Juice.Slide(cursor, next.Home + UDim2.fromOffset(0, next.Label.Size.Y.Offset))
+		end
+	end
 
-	-- One submit per prompt: an Enter right after an auto-submit must not send the next prompt's answer.
+	local function reset()
+		submitted = false
+		typedLength = 0
+		editing = true
+		box.Text = ""
+		editing = false
+		paint("")
+	end
+
 	local function submit()
 		local text = prepare(box.Text)
 		if prompt == "" or submitted or not text then
@@ -158,24 +208,30 @@ local function createKeyboard(parent: GuiObject): TypingField
 			typed = box.Text
 		end
 
-		label.Text = renderPrompt(prompt, typed)
+		paint(typed)
 
 		-- Feedback only for a newly typed character, not for deletes or bug words removed from the buffer.
-		if prompt ~= "" and #typed == typedLength + 1 and #typed <= #prompt then
-			if string.sub(typed, #typed, #typed) == string.sub(prompt, #typed, #typed) then
+		local letter = letters[#typed]
+		if letter and #typed == typedLength + 1 then
+			if string.sub(typed, #typed, #typed) == letter.Char then
 				click:Play()
-				Juice.Pop(label, 0.03)
-				Juice.Spark(holder, charPosition(#typed), Theme.TYPED)
+				Juice.Hop(letter.Label)
+				Juice.Spark(lettersFrame, letter.Home + UDim2.fromOffset(letter.Label.Size.X.Offset / 2, 0), Theme.TYPED)
 			else
 				wrong:Play()
-				Juice.Shake(label, flash)
+				Juice.Shake(letter.Label, flash)
 			end
 		end
 		typedLength = #typed
 
 		if prompt ~= "" and typed == prompt then
 			done:Play()
-			Juice.Bounce(label, holder, SUCCESS_TEXT)
+			local labels: { GuiObject } = {}
+			for _, each in letters do
+				table.insert(labels, each.Label)
+			end
+			Juice.Wave(labels)
+			Juice.Bounce(lettersFrame, holder, SUCCESS_TEXT)
 			submit()
 		end
 	end)
@@ -196,21 +252,16 @@ local function createKeyboard(parent: GuiObject): TypingField
 	field = {
 		SetPrompt = function(self: TypingField, text: string)
 			prompt = text
-			submitted = false
-			typedLength = 0
-			editing = true
-			box.Text = ""
-			editing = false
-			label.Text = renderPrompt(prompt, "")
+			for _, letter in letters do
+				letter.Label:Destroy()
+			end
+			letters = buildLetters(lettersFrame, prompt)
+			cursor.Position = if letters[1] then letters[1].Home + UDim2.fromOffset(0, letters[1].Label.Size.Y.Offset) else UDim2.new()
+			reset()
 			box:CaptureFocus()
 		end,
 		Clear = function(self: TypingField)
-			submitted = false
-			typedLength = 0
-			editing = true
-			box.Text = ""
-			editing = false
-			label.Text = renderPrompt(prompt, "")
+			reset()
 		end,
 		Destroy = function(self: TypingField)
 			active = false
