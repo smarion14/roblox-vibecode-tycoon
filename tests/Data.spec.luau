@@ -77,4 +77,17 @@ tests["remote names map to themselves"] = function()
 	assert(count == 15, `expected 15 remote names, got {count}`)
 end
 
+tests["intro contains the exact doubter line"] = function()
+	local StoryText = require("../src/ReplicatedStorage/Shared/StoryText")
+	local found = table.find(
+		StoryText.INTRO,
+		"That's not coding. That's autocomplete in a hoodie. You've got one month to make rent or you're out."
+	)
+	assert(found, "doubter line missing")
+	assert(#StoryText.SIBLING_TEXTS >= 6)
+	assert(StoryText.SIBLING_TEXTS[1] == "lol it crashed for me")
+	assert(table.find(StoryText.SIBLING_TEXTS, "...how much did that pay?"))
+	assert(StoryText.ACT1_COMPLETE == "Act 1 complete. To be continued.")
+end
+
 return tests
