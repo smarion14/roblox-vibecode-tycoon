@@ -1,0 +1,5 @@
+.superpowers/
+sourcemap.json
+*.rbxl.lock
+game.rbxl
+types/
