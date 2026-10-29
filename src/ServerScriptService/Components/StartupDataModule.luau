@@ -42,6 +42,13 @@ local catalog: SaveSchema.SaveCatalog = {
 	Components = GameConfig.COMPONENTS,
 	GearIds = sortedKeys(GameConfig.GEAR),
 	HireIds = sortedKeys(GameConfig.HIRES),
+	ClientIds = (function(): { string }
+		local ids: { string } = {}
+		for _, client in GameConfig.CLIENTS do
+			table.insert(ids, client.Id)
+		end
+		return ids
+	end)(),
 	StartingValuation = GameConfig.STARTING_VALUATION,
 }
 

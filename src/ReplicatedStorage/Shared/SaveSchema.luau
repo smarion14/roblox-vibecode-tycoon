@@ -18,6 +18,7 @@ export type PlayerSave = {
 	Gear: { [string]: boolean },
 	Hires: { [string]: boolean },
 	StoryFlags: { [string]: boolean },
+	ActiveJobId: string?,
 	LockJobId: string?,
 	LockTime: number,
 }
@@ -26,6 +27,7 @@ export type SaveCatalog = {
 	Components: { string },
 	GearIds: { string },
 	HireIds: { string },
+	ClientIds: { string },
 	StartingValuation: number,
 }
 
@@ -80,6 +82,7 @@ function SaveSchema.Default(catalog: SaveCatalog): PlayerSave
 		Gear = {},
 		Hires = {},
 		StoryFlags = {},
+		ActiveJobId = nil,
 		LockJobId = nil,
 		LockTime = 0,
 	}
@@ -124,6 +127,10 @@ function SaveSchema.Sanitize(raw: any, catalog: SaveCatalog): PlayerSave
 				save.StoryFlags[key] = true
 			end
 		end
+	end
+
+	if type(raw.ActiveJobId) == "string" and table.find(catalog.ClientIds, raw.ActiveJobId) then
+		save.ActiveJobId = raw.ActiveJobId
 	end
 
 	if type(raw.LockJobId) == "string" then

@@ -5,6 +5,7 @@ local CATALOG: SaveSchema.SaveCatalog = {
 	Components = { "FrontendUnits", "BackendEndpoints", "DatabaseTables", "PromptTokens" },
 	GearIds = { "MechanicalKeyboard", "SecondMonitor", "ModelV2" },
 	HireIds = { "FrontendUnits", "BackendEndpoints", "DatabaseTables", "PromptTokens" },
+	ClientIds = { "PawsAndSuds", "RollingTaco", "CornerBakery" },
 	StartingValuation = 1.0,
 }
 
@@ -43,6 +44,13 @@ tests["grade counts floored"] = function()
 	assert(save.Inventory.FrontendUnits.S == 2)
 	assert(save.Inventory.FrontendUnits.C == 0)
 	assert(save.Inventory.Hats == nil)
+end
+
+tests["active job kept only if known"] = function()
+	assert(SaveSchema.Default(CATALOG).ActiveJobId == nil)
+	assert(SaveSchema.Sanitize({ ActiveJobId = "RollingTaco" }, CATALOG).ActiveJobId == "RollingTaco")
+	assert(SaveSchema.Sanitize({ ActiveJobId = "EvilCorp" }, CATALOG).ActiveJobId == nil)
+	assert(SaveSchema.Sanitize({ ActiveJobId = 42 }, CATALOG).ActiveJobId == nil)
 end
 
 tests["act clamped"] = function()
