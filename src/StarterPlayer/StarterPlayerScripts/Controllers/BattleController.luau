@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
@@ -95,10 +96,16 @@ local function clearBattle()
 	table.clear(bugs)
 end
 
+-- Mirrors the server's rule: a bug can't be squashed faster than its word could be typed after it appears.
+local function squashable(bug: BugView, elapsed: number): boolean
+	local earliest = bug.SpawnOffset + #bug.Word / GameConfig.BATTLE_RULES.MaxCharsPerSecond
+	return bug.State == "Pending" and elapsed >= earliest
+end
+
 local function trySquashWord(word: string): boolean
 	local elapsed = serverElapsed()
 	for _, bug in bugs do
-		if bug.State == "Pending" and bug.Word == word and elapsed >= bug.SpawnOffset then
+		if bug.Word == word and squashable(bug, elapsed) then
 			RemoteManager.FireServer(RemoteNames.BattleSquash, word)
 			return true
 		end
@@ -164,7 +171,7 @@ local function onStarted(info: any)
 			Button = button,
 		}
 		button.Activated:Connect(function()
-			if mode == "Touch" and view.State == "Pending" then
+			if mode == "Touch" and squashable(view, serverElapsed()) then
 				RemoteManager.FireServer(RemoteNames.BattleSquash, view.Word)
 			end
 		end)

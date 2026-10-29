@@ -163,9 +163,11 @@ local function onDeployTerminal(player: Player)
 end
 
 local function onSubmitPrompt(player: Player, text: any)
-	if type(text) ~= "string" or #text > GameConfig.MAX_REMOTE_STRING then
+	if type(text) ~= "string" then
 		return
 	end
+	-- Oversize text is cut and judged (it scores 0) rather than dropped, so the client is never left waiting.
+	text = string.sub(text, 1, GameConfig.MAX_REMOTE_STRING)
 	local active = battles[player]
 	if not active or not active.Running then
 		return

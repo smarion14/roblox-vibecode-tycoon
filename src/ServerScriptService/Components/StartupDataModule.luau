@@ -16,12 +16,13 @@ export type Activity = "Idle" | "Burst" | "Battle"
 
 type Session = {
 	Save: PlayerSave,
-	Dirty: boolean,
 	Activity: Activity,
+	Released: boolean,
 }
 
 local SAVE_CONFIG = GameConfig.SAVE
 local LOAD_FAILED_MESSAGE = "Couldn't load your save. Please rejoin."
+local RELEASE_ATTEMPTS = 3
 
 local StartupDataModule = {}
 
@@ -111,19 +112,18 @@ local function attemptLoad(player: Player): PlayerSave | "Conflict" | "Error"
 	return claimed or "Conflict"
 end
 
--- Writes the session save. Refuses to overwrite a save another server has since claimed.
-local function writeSave(player: Player, release: boolean): boolean
-	local session = sessions[player]
-	if not session then
-		return true
-	end
-
+-- Writes a session's save. Refuses to overwrite a save another server has since claimed, and a periodic
+-- write that lands after the session was released is cancelled so it can't re-lock the save.
+local function writeSave(player: Player, session: Session, release: boolean): boolean
 	local snapshot = deepCopy(session.Save)
 	snapshot.LockJobId = if release then nil else game.JobId
 	snapshot.LockTime = os.time()
 
 	local ok, err = pcall(function()
 		getStore():UpdateAsync(keyFor(player), function(raw: any): any
+			if not release and session.Released then
+				return nil
+			end
 			if type(raw) == "table" and raw.LockJobId ~= nil and raw.LockJobId ~= game.JobId then
 				return nil
 			end
@@ -131,12 +131,26 @@ local function writeSave(player: Player, release: boolean): boolean
 		end)
 	end)
 
-	if ok then
-		session.Dirty = false
-	else
+	if not ok then
 		warn(`[StartupDataModule] save failed for {player.UserId}: {err}`)
 	end
 	return ok
+end
+
+-- Ends a session: removes it first so no autosave can follow, then saves and frees the lock, with retries.
+local function releaseSession(player: Player, session: Session)
+	session.Released = true
+	if sessions[player] == session then
+		sessions[player] = nil
+	end
+	for attempt = 1, RELEASE_ATTEMPTS do
+		if writeSave(player, session, true) then
+			return
+		end
+		if attempt < RELEASE_ATTEMPTS then
+			task.wait(attempt)
+		end
+	end
 end
 
 local function onPlayerAdded(player: Player)
@@ -145,13 +159,11 @@ local function onPlayerAdded(player: Player)
 		if type(result) == "table" then
 			if player.Parent == nil then
 				-- Left while loading: hand the lock straight back without starting a session.
-				sessions[player] = { Save = result, Dirty = false, Activity = "Idle" }
-				writeSave(player, true)
-				sessions[player] = nil
+				releaseSession(player, { Save = result, Activity = "Idle", Released = false })
 				return
 			end
 
-			sessions[player] = { Save = result, Dirty = false, Activity = "Idle" }
+			sessions[player] = { Save = result, Activity = "Idle", Released = false }
 			sync(player)
 			for _, callback in loadedCallbacks do
 				task.spawn(callback, player)
@@ -169,9 +181,9 @@ local function onPlayerAdded(player: Player)
 end
 
 local function onPlayerRemoving(player: Player)
-	if sessions[player] then
-		writeSave(player, true)
-		sessions[player] = nil
+	local session = sessions[player]
+	if session then
+		releaseSession(player, session)
 	end
 end
 
@@ -204,7 +216,6 @@ function StartupDataModule.Update(player: Player, mutator: (save: PlayerSave) ->
 		return false
 	end
 	mutator(session.Save)
-	session.Dirty = true
 	sync(player)
 	return true
 end
@@ -228,22 +239,22 @@ function StartupDataModule.Start()
 		task.spawn(onPlayerAdded, player)
 	end
 
-	-- Saves every session each interval, dirty or not, so the session lock never goes stale while playing.
+	-- Saves every session each interval so the session lock never goes stale while playing.
 	task.spawn(function()
 		while true do
 			task.wait(SAVE_CONFIG.AutosaveInterval)
-			for player in sessions do
-				task.spawn(writeSave, player, false)
+			for player, session in sessions do
+				task.spawn(writeSave, player, session, false)
 			end
 		end
 	end)
 
 	game:BindToClose(function()
 		local pending = 0
-		for player in sessions do
+		for player, session in sessions do
 			pending += 1
 			task.spawn(function()
-				writeSave(player, true)
+				releaseSession(player, session)
 				pending -= 1
 			end)
 		end

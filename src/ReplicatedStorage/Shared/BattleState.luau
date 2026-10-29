@@ -9,6 +9,7 @@ export type BattleRules = {
 	LatencyGrace: number,
 	MoodHitPenalty: number,
 	BadPromptPenalty: number,
+	MissedSquashPenalty: number,
 	MinPromptAccuracy: number,
 	CleanPromptAccuracy: number,
 	MaxDuration: number,
@@ -154,10 +155,12 @@ function BattleState.Squash(b: Battle, word: string, now: number): boolean
 
 	local wanted = normalizeWord(word)
 	for _, bug in b.Bugs do
+		-- A bug can't be typed faster than the typing cap allows after it appears.
+		local earliest = bug.SpawnAt + #bug.Word / b.Rules.MaxCharsPerSecond
 		if
 			bug.State == "Pending"
 			and bug.Word == wanted
-			and bug.SpawnAt <= now
+			and earliest <= now
 			and now <= bug.ReachAt + b.Rules.LatencyGrace
 		then
 			bug.State = "Squashed"
@@ -167,12 +170,21 @@ function BattleState.Squash(b: Battle, word: string, now: number): boolean
 	end
 
 	b.Combo = 0
+	b.Mood -= b.Rules.MissedSquashPenalty
+	if b.Mood <= 0 then
+		b.Status = "Failed"
+	end
 	return false
 end
 
 function BattleState.SubmitPrompt(b: Battle, text: string, now: number, judge: Judge): number
 	BattleState.Tick(b, now)
 	if b.Status ~= "Running" then
+		return 0
+	end
+
+	-- Blank input (a stray Enter) is ignored rather than judged as a failed prompt.
+	if string.match(text, "^%s*$") then
 		return 0
 	end
 

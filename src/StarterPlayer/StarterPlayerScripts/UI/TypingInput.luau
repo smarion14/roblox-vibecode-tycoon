@@ -1,8 +1,11 @@
 --!strict
 -- Shared typing field for bursts and battles.
 -- Keyboard: a hidden TextBox with live per-character colouring. Touch/gamepad: tap the prompt's words in order.
+local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local Theme = require(script.Parent:WaitForChild("Theme"))
 
 export type Mode = "Keyboard" | "Touch"
@@ -19,14 +22,24 @@ local CLICK_SOUND = "rbxasset://sounds/clickfast.wav"
 
 local TypingInput = {}
 
+local function usingGamepad(): boolean
+	return UserInputService:GetLastInputType().Name:sub(1, 7) == "Gamepad"
+end
+
+-- Blank input is never sent, and anything longer than the server accepts is cut to fit.
+local function prepare(text: string): string?
+	if string.match(text, "^%s*$") then
+		return nil
+	end
+	return string.sub(text, 1, GameConfig.MAX_REMOTE_STRING)
+end
+
 local function hex(color: Color3): string
 	return "#" .. color:ToHex()
 end
 
 function TypingInput.DetectMode(): Mode
-	local lastInput = UserInputService:GetLastInputType()
-	local usingGamepad = lastInput.Name:sub(1, 7) == "Gamepad"
-	if usingGamepad or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
+	if usingGamepad() or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
 		return "Touch"
 	end
 	return "Keyboard"
@@ -55,6 +68,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 	local prompt = ""
 	local active = true
 	local editing = false
+	local submitted = false
 
 	local label = Theme.Text(parent, "", 22)
 	label.RichText = true
@@ -74,11 +88,13 @@ local function createKeyboard(parent: GuiObject): TypingField
 	click.Volume = 0.4
 	click.Parent = label
 
+	-- One submit per prompt: an Enter right after an auto-submit must not send the next prompt's answer.
 	local function submit()
-		if prompt == "" then
+		local text = prepare(box.Text)
+		if prompt == "" or submitted or not text then
 			return
 		end
-		local text = box.Text
+		submitted = true
 		local onSubmit = field.OnSubmit
 		if onSubmit then
 			onSubmit(text)
@@ -103,7 +119,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 		end
 
 		label.Text = renderPrompt(prompt, typed)
-		if prompt ~= "" and #typed >= #prompt then
+		if prompt ~= "" and typed == prompt then
 			submit()
 		end
 	end)
@@ -124,6 +140,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 	field = {
 		SetPrompt = function(self: TypingField, text: string)
 			prompt = text
+			submitted = false
 			editing = true
 			box.Text = ""
 			editing = false
@@ -131,6 +148,7 @@ local function createKeyboard(parent: GuiObject): TypingField
 			box:CaptureFocus()
 		end,
 		Clear = function(self: TypingField)
+			submitted = false
 			editing = true
 			box.Text = ""
 			editing = false
@@ -173,6 +191,19 @@ local function createTouch(parent: GuiObject): TypingField
 
 	local rng = Random.new()
 
+	-- Gamepad players move a selection cursor over the chips; keep it on the next untapped one.
+	local function selectNextChip()
+		if not usingGamepad() then
+			return
+		end
+		for _, child in chips:GetChildren() do
+			if child:IsA("TextButton") and child.Active then
+				GuiService.SelectedObject = child
+				return
+			end
+		end
+	end
+
 	local function clearChips()
 		for _, child in chips:GetChildren() do
 			if child:IsA("GuiButton") then
@@ -198,14 +229,17 @@ local function createTouch(parent: GuiObject): TypingField
 				chip.TextTransparency = 0.6
 				table.insert(buffer, word)
 				typedLabel.Text = table.concat(buffer, " ")
+				selectNextChip()
 				if #buffer >= wordCount then
 					local onSubmit = field.OnSubmit
-					if onSubmit then
-						onSubmit(table.concat(buffer, " "))
+					local text = prepare(table.concat(buffer, " "))
+					if onSubmit and text then
+						onSubmit(text)
 					end
 				end
 			end)
 		end
+		task.defer(selectNextChip)
 	end
 
 	field = {

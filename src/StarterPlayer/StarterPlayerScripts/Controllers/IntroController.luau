@@ -34,7 +34,7 @@ local function typeLine(text: string, color: Color3)
 	end
 end
 
-local function play(lines: any)
+function IntroController.Play(lines: any)
 	if type(lines) ~= "table" then
 		return
 	end
@@ -92,12 +92,7 @@ function IntroController.Init()
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 end
 
-function IntroController.Start()
-	RemoteManager.GetRemote(RemoteNames.StoryBeat).OnClientEvent:Connect(function(kind: any, payload: any)
-		if kind == "Intro" then
-			play(payload)
-		end
-	end)
-end
+-- StoryController owns the single StoryBeat listener and calls Play, so the queued intro beat can't be missed.
+function IntroController.Start() end
 
 return IntroController

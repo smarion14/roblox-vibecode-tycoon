@@ -72,6 +72,7 @@ GameConfig.BATTLE_RULES = {
 	LatencyGrace = 0.25,
 	MoodHitPenalty = 15,
 	BadPromptPenalty = 5,
+	MissedSquashPenalty = 3,
 	MinPromptAccuracy = 0.6,
 	CleanPromptAccuracy = 0.9,
 	MaxDuration = 120,

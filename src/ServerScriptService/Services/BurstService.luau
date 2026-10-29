@@ -106,9 +106,11 @@ local function onStation(player: Player, part: BasePart)
 end
 
 local function onSubmit(player: Player, index: any, text: any)
-	if type(index) ~= "number" or type(text) ~= "string" or #text > GameConfig.MAX_REMOTE_STRING then
+	-- Blank input (a stray Enter) is ignored; oversize text is cut and judged rather than dropped.
+	if type(index) ~= "number" or type(text) ~= "string" or string.match(text, "^%s*$") then
 		return
 	end
+	text = string.sub(text, 1, GameConfig.MAX_REMOTE_STRING)
 	local burst = bursts[player]
 	if not burst or burst.Finished or index ~= burst.Current or burst.Submissions[index] then
 		return

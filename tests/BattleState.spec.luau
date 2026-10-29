@@ -127,6 +127,27 @@ tests["finished battle ignores input"] = function()
 	assert(b.Progress == 0)
 end
 
+tests["empty prompt is ignored"] = function()
+	local b = newBattle(0)
+	assert(BattleState.SubmitPrompt(b, "   ", 1, JUDGE) == 0)
+	assert(b.Mood == 70 and b.PromptsJudged == 0 and b.PromptIssuedAt == 0)
+end
+
+tests["squash faster than typing the word fails"] = function()
+	local b = newBattle(0)
+	local bug = b.Bugs[1]
+	-- 20 chars/s means a 4-6 letter word needs at least 0.2-0.3s after it appears.
+	assert(BattleState.Squash(b, bug.Word, bug.SpawnAt + 0.05) == false)
+	assert(bug.State == "Pending")
+	assert(BattleState.Squash(b, bug.Word, bug.SpawnAt + 0.5) == true)
+end
+
+tests["missed squash costs mood"] = function()
+	local b = newBattle(0)
+	BattleState.Squash(b, "notabug", 3)
+	assert(b.Mood == 70 - RULES.MissedSquashPenalty, `mood {b.Mood}`)
+end
+
 tests["snapshot"] = function()
 	local b = newBattle(0)
 	BattleState.Squash(b, b.Bugs[1].Word, 3)

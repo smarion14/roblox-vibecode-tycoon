@@ -7,6 +7,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local Theme = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Theme"))
+local IntroController = require(script.Parent:WaitForChild("IntroController"))
 
 local TEXT_SECONDS = 5
 
@@ -54,7 +55,9 @@ local function showCard(lines: { string }, ending: string)
 end
 
 local function onBeat(kind: any, payload: any)
-	if kind == "SiblingText" then
+	if kind == "Intro" then
+		task.spawn(IntroController.Play, payload)
+	elseif kind == "SiblingText" then
 		showText(payload)
 	elseif kind == "RentPaid" and type(payload) == "table" then
 		local lines: { string } = {}
