@@ -92,8 +92,71 @@ function Juice.Pop(target: GuiObject, amount: number)
 	TweenService:Create(scale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
--- Horizontal shake plus a red flash behind the target. The target must not be positioned by a UILayout.
-function Juice.Shake(target: GuiObject, flash: GuiObject)
+-- Appears from nothing with an overshoot, for things spawning in.
+function Juice.PopIn(target: GuiObject)
+	local scale = scaleOf(target)
+	scale.Scale = 0
+	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+-- Squash payoff: an expanding ring, a big "SPLAT" glyph and a spray of sparks at the bug's last position.
+function Juice.Splat(layer: GuiObject, position: UDim2)
+	local ring = Instance.new("Frame")
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = position
+	ring.Size = UDim2.fromOffset(20, 20)
+	ring.BackgroundTransparency = 1
+	ring.ZIndex = 9
+	ring.Parent = layer
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.5, 0)
+	corner.Parent = ring
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Theme.TYPED
+	stroke.Thickness = 3
+	stroke.Parent = ring
+	TweenService:Create(ring, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = UDim2.fromOffset(110, 110),
+	}):Play()
+	local fade = TweenService:Create(stroke, TweenInfo.new(0.35), { Transparency = 1 })
+	fade.Completed:Once(function()
+		ring:Destroy()
+	end)
+	fade:Play()
+
+	local splat = Instance.new("TextLabel")
+	splat.BackgroundTransparency = 1
+	splat.AnchorPoint = Vector2.new(0.5, 0.5)
+	splat.Position = position
+	splat.Size = UDim2.fromOffset(120, 30)
+	splat.Font = Theme.FONT
+	splat.TextSize = 22
+	splat.TextColor3 = Theme.ACCENT
+	splat.TextStrokeTransparency = 0.5
+	splat.Text = "SPLAT!"
+	splat.Rotation = rng:NextInteger(-15, 15)
+	splat.ZIndex = 10
+	splat.Parent = layer
+	local splatScale = scaleOf(splat)
+	splatScale.Scale = 0.3
+	TweenService:Create(splatScale, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.2 }):Play()
+	local rise = TweenService:Create(splat, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = position + UDim2.fromOffset(0, -40),
+		TextTransparency = 1,
+		TextStrokeTransparency = 1,
+	})
+	rise.Completed:Once(function()
+		splat:Destroy()
+	end)
+	rise:Play()
+
+	for _ = 1, 8 do
+		Juice.Spark(layer, position, if rng:NextNumber() < 0.5 then Theme.TYPED else Theme.ACCENT)
+	end
+end
+
+-- Horizontal shake plus an optional red flash behind the target. The target must not be positioned by a UILayout.
+function Juice.Shake(target: GuiObject, flash: GuiObject?)
 	local origin = homeOf(target)
 
 	task.spawn(function()
@@ -106,9 +169,11 @@ function Juice.Shake(target: GuiObject, flash: GuiObject)
 		target.Rotation = 0
 	end)
 
-	flash.BackgroundColor3 = Theme.BUG
-	flash.BackgroundTransparency = 0.6
-	TweenService:Create(flash, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+	if flash then
+		flash.BackgroundColor3 = Theme.BUG
+		flash.BackgroundTransparency = 0.6
+		TweenService:Create(flash, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+	end
 end
 
 -- Prompt done: the line jumps and bounces back, and a label leaps up out of it.

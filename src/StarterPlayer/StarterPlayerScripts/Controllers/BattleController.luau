@@ -12,6 +12,7 @@ local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Theme = require(UI:WaitForChild("Theme"))
+local Juice = require(UI:WaitForChild("Juice"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
 
 type BugView = {
@@ -22,10 +23,12 @@ type BugView = {
 	ReachOffset: number,
 	State: string,
 	Button: TextButton,
+	Shown: boolean,
 }
 
 local RESULT_SECONDS = 3
 local BUG_LANES = 5
+local DANGER_TRAVEL = 0.75 -- past this share of the path a bug starts pulsing as a warning
 
 local REACTIONS = {
 	happy = { "Oh nice, that loads fast.", "This is exactly what I pictured.", "My team is going to love this." },
@@ -36,6 +39,8 @@ local REACTIONS = {
 local BattleController = {}
 
 local gui: ScreenGui
+local root: Frame
+local rootFlash: Frame
 local clientName: TextLabel
 local face: TextLabel
 local reaction: TextLabel
@@ -55,6 +60,7 @@ local currentPrompt = ""
 local pendingSubmit = false
 local lastJudged = 0
 local lastMoodBand = ""
+local lastCombo = 0
 local renderConnection: RBXScriptConnection? = nil
 
 local function serverElapsed(): number
@@ -119,10 +125,28 @@ local function renderBugs()
 		local visible = bug.State == "Pending" and elapsed >= bug.SpawnOffset
 		bug.Button.Visible = visible
 		if visible then
+			if not bug.Shown then
+				bug.Shown = true
+				Juice.PopIn(bug.Button)
+			end
 			local travel = math.clamp((elapsed - bug.SpawnOffset) / (bug.ReachOffset - bug.SpawnOffset), 0, 1)
 			local x = if bug.Side < 0 then 0.5 * travel else 1 - 0.5 * travel
 			local lane = (bug.Id % BUG_LANES) / BUG_LANES
-			bug.Button.Position = UDim2.fromScale(x, 0.1 + lane * 0.8)
+			local phase = elapsed * 10 + bug.Id
+			-- Crawl: a side-to-side wiggle and a small bob so the bug looks alive.
+			bug.Button.Rotation = math.sin(phase) * 8
+			bug.Button.Position = UDim2.new(x, 0, 0.1 + lane * 0.8, math.sin(phase * 1.7) * 3)
+
+			-- Warning phase: close to the prompt the bug flashes and throbs.
+			local danger = travel >= DANGER_TRAVEL
+			local throb = if danger then 1 + 0.12 * math.abs(math.sin(elapsed * 14)) else 1
+			local scale = bug.Button:FindFirstChildOfClass("UIScale")
+			if scale and scale.Scale >= 0.99 then
+				scale.Scale = throb
+			end
+			bug.Button.BackgroundColor3 = if danger and math.sin(elapsed * 14) > 0
+				then Color3.fromRGB(120, 20, 40)
+				else Color3.fromRGB(42, 15, 28)
 		end
 	end
 end
@@ -138,6 +162,7 @@ local function onStarted(info: any)
 	lastMoodBand = ""
 	setMood(tonumber(info.Mood) or 70)
 	comboLabel.Text = "x0"
+	lastCombo = 0
 	progressFill.Size = UDim2.fromScale(0, 1)
 	resultLabel.Visible = false
 	pendingSubmit = false
@@ -169,6 +194,7 @@ local function onStarted(info: any)
 			ReachOffset = bug.ReachOffset,
 			State = "Pending",
 			Button = button,
+			Shown = false,
 		}
 		button.Activated:Connect(function()
 			if mode == "Touch" and squashable(view, serverElapsed()) then
@@ -199,13 +225,26 @@ local function onUpdate(snapshot: any)
 		return
 	end
 	setMood(tonumber(snapshot.Mood) or 0)
-	comboLabel.Text = `x{tonumber(snapshot.Combo) or 0}`
+	local combo = tonumber(snapshot.Combo) or 0
+	comboLabel.Text = `x{combo}`
+	if combo > lastCombo then
+		Juice.Pop(comboLabel, 0.35)
+	elseif combo == 0 and lastCombo > 0 then
+		Juice.Shake(comboLabel, nil)
+	end
+	lastCombo = combo
 	progressFill.Size = UDim2.fromScale(math.clamp((tonumber(snapshot.Progress) or 0) / shipRequired, 0, 1), 1)
 
 	if type(snapshot.BugStates) == "table" then
 		for _, bug in bugs do
 			local state = snapshot.BugStates[bug.Id]
 			if type(state) == "string" then
+				if bug.State == "Pending" and state == "Squashed" then
+					Juice.Splat(bugLayer, bug.Button.Position)
+				elseif bug.State == "Pending" and state == "Hit" then
+					-- Contact: the bug got through. Shake the whole screen and flash it red.
+					Juice.Shake(root, rootFlash)
+				end
 				bug.State = state
 			end
 		end
@@ -259,8 +298,15 @@ function BattleController.Init()
 	gui = Theme.Screen("Battle", 6)
 	gui.Enabled = false
 
-	local root = Theme.Panel(gui, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.5, 0.5))
+	root = Theme.Panel(gui, UDim2.fromScale(0.9, 0.8), UDim2.fromScale(0.5, 0.5))
 	root.AnchorPoint = Vector2.new(0.5, 0.5)
+
+	rootFlash = Instance.new("Frame")
+	rootFlash.Size = UDim2.fromScale(1, 1)
+	rootFlash.BackgroundTransparency = 1
+	rootFlash.BorderSizePixel = 0
+	rootFlash.ZIndex = 8
+	rootFlash.Parent = root
 
 	-- Left: the client on a live call.
 	local left = Instance.new("Frame")
