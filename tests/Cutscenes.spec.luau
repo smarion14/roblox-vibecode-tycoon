@@ -45,8 +45,8 @@ end
 
 tests["exact brother lines appear"] = function()
 	local intro = lines(Cutscenes.Get("Act1Intro", COPY))
-	assert(table.find(intro, "That's not coding. That's autocomplete in a hoodie."))
-	assert(table.find(intro, "You've got one month to make rent or you're out."))
+	assert(table.find(intro, "You're STILL doing this garbage? Typing wishes at a robot all night won't get you anywhere!"))
+	assert(table.find(intro, "One month. Make rent, or you and your little robot pal are sleeping on the curb."))
 	local ending = lines(Cutscenes.Get("Act1End", COPY))
 	assert(table.find(ending, "...Okay. You can stay."))
 	assert(table.find(ending, "Don't make it weird."))
