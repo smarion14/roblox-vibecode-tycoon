@@ -11,6 +11,7 @@ local Juice = require(UI:WaitForChild("Juice"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 local CutsceneController = require(script.Parent:WaitForChild("CutsceneController"))
+local NameDialog = require(UI:WaitForChild("NameDialog"))
 
 local TEXT_SECONDS = 5
 
@@ -114,6 +115,12 @@ end
 
 function StoryController.Start()
 	RemoteManager.GetRemote(RemoteNames.StoryBeat).OnClientEvent:Connect(onBeat)
+	-- The office's startup sign reopens the naming dialog.
+	RemoteManager.GetRemote(RemoteNames.OpenUI).OnClientEvent:Connect(function(kind: any, payload: any)
+		if kind == "Rename" then
+			task.spawn(NameDialog.Prompt, if type(payload) == "string" then payload else "", true)
+		end
+	end)
 end
 
 return StoryController

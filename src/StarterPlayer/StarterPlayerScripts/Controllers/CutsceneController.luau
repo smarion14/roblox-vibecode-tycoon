@@ -17,6 +17,7 @@ local UI = script.Parent.Parent:WaitForChild("UI")
 local Actors = require(UI:WaitForChild("Actors"))
 local Juice = require(UI:WaitForChild("Juice"))
 local Music = require(UI:WaitForChild("Music"))
+local NameDialog = require(UI:WaitForChild("NameDialog"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 
@@ -334,6 +335,9 @@ local function runStep(scene: Scene, step: Cutscenes.Step)
 		say(string.upper(step.Speaker or ""), step.Text or "")
 	elseif kind == "PhoneText" then
 		say(`{string.upper(step.Speaker or "")}  ·  new message`, step.Text or "")
+	elseif kind == "NameStartup" then
+		-- Continues only once the server accepts a name; Skip closes the dialog and leaves the name unset.
+		NameDialog.Prompt("")
 	elseif kind == "Title" then
 		title(step)
 	end
@@ -501,6 +505,7 @@ function CutsceneController.Init()
 	skipButton.Visible = false
 	skipButton.Activated:Connect(function()
 		skipping = true
+		NameDialog.Close()
 	end)
 
 	gui.Parent = player:WaitForChild("PlayerGui")
