@@ -560,6 +560,11 @@ function CutsceneController.Play(payload: any)
 	play(payload.Id, payload.Copy)
 end
 
+-- True while a scene owns the camera and the character, so other camera modes (decorate mode) stay out.
+function CutsceneController.IsPlaying(): boolean
+	return playing
+end
+
 function CutsceneController.Init()
 	camBase = Instance.new("CFrameValue")
 	camBase.Name = "CutsceneCameraBase"
