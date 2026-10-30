@@ -170,13 +170,23 @@ local function onFinished(grade: any, accuracy: any, component: any)
 	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 	TweenService:Create(gradeLabel, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
 
+	-- Sound: the stamp lands with the slam, the grade stinger right after, S adds a cha-ching.
+	Sfx.Play("GradeStamp")
+	task.delay(0.12, function()
+		if gradeText == "S" then
+			Sfx.Play("GradeS")
+			Sfx.Play("GradeSCash")
+			Sfx.Play("ComboCallout")
+		elseif gradeText == "A" then
+			Sfx.Play("GradeA")
+		elseif gradeText == "B" then
+			Sfx.Play("GradeB")
+		else
+			Sfx.Play("GradeC")
+		end
+	end)
 	if style.Banner then
-		Sfx.Play("ComboCallout")
 		Juice.Banner(fx, style.Banner, style.Color, 46)
-	elseif gradeText == "B" then
-		Sfx.Play("PromptClean")
-	else
-		Sfx.Play("KeyWrong")
 	end
 	for _ = 1, style.Sparks do
 		Juice.Spark(panel, UDim2.fromScale(math.random(), 1), style.Color)
@@ -185,6 +195,9 @@ local function onFinished(grade: any, accuracy: any, component: any)
 	-- What you built, floating up toward the HUD.
 	local stationName = if type(component) == "string" then GameConfig.STATION_NAMES[component] else nil
 	if stationName then
+		task.delay(0.35, function()
+			Sfx.Play("PartEarned")
+		end)
 		Juice.FloatText(fx, UDim2.new(0.5, 0, 1, -230), `+1 {stationName} ({gradeText})`, style.Color)
 	end
 

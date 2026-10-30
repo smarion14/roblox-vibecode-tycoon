@@ -17,6 +17,13 @@ export type SoundName =
 	| "ComboCallout"
 	| "Banner"
 	| "Shipped"
+	| "GradeStamp"
+	| "GradeS"
+	| "GradeSCash"
+	| "GradeA"
+	| "GradeB"
+	| "GradeC"
+	| "PartEarned"
 
 type SoundDef = {
 	Ids: { number },
@@ -39,6 +46,14 @@ local SOUNDS: { [string]: SoundDef } = {
 	ComboCallout = { Ids = { 9116395089 }, Volume = 0.5, PitchMin = 1.05, PitchMax = 1.15, Voices = 1 },
 	Banner = { Ids = { 15674975792 }, Volume = 0.45, PitchMin = 1, PitchMax = 1, Voices = 1 },
 	Shipped = { Ids = { 9116395085 }, Volume = 0.6, PitchMin = 1, PitchMax = 1, Voices = 1 },
+	-- Burst grade reveal: a rubber-stamp slam on every grade, then a stinger that gets brighter with the grade.
+	GradeStamp = { Ids = { 9114026047 }, Volume = 0.7, PitchMin = 0.95, PitchMax = 1.05, Voices = 1 },
+	GradeS = { Ids = { 9126073011 }, Volume = 0.6, PitchMin = 1.05, PitchMax = 1.05, Voices = 1 },
+	GradeSCash = { Ids = { 9113728042 }, Volume = 0.45, PitchMin = 1, PitchMax = 1, Voices = 1 },
+	GradeA = { Ids = { 9126073001 }, Volume = 0.55, PitchMin = 1, PitchMax = 1, Voices = 1 },
+	GradeB = { Ids = { 9126073026 }, Volume = 0.45, PitchMin = 0.85, PitchMax = 0.85, Voices = 1 },
+	GradeC = { Ids = { 9119071955 }, Volume = 0.4, PitchMin = 0.75, PitchMax = 0.75, Voices = 1 },
+	PartEarned = { Ids = { 15674975792 }, Volume = 0.4, PitchMin = 1.3, PitchMax = 1.4, Voices = 1 },
 }
 
 local Sfx = {}
