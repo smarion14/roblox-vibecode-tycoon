@@ -5,6 +5,7 @@
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
@@ -26,6 +27,12 @@ local MARKER_WAIT = 6
 local BLACK_HOLD = 3
 local TITLE_SECONDS = 2.8
 local BAR_HEIGHT = 0.11
+local RIG_NAME = "CutsceneCameraRig"
+-- Close-ups on a speaker: a little in front, off to one side and below the eyes, for a campy low angle.
+local FOCUS_DISTANCE = 2.6
+local FOCUS_SIDE = 0.9
+local FOCUS_DROP = 0.5
+local STRESS_CHAR_DELAY = 0.05
 
 local CutsceneController = {}
 
@@ -46,6 +53,14 @@ local playing = false
 local skipping = false
 local advanced = false
 local sceneToken = 0
+local rng = Random.new()
+
+-- Camera rig: shots and close-ups tween camBase; each frame the camera is camBase plus a decaying shake, so
+-- shakes and moves never fight over Camera.CFrame.
+local camBase: CFrameValue
+local baseFov = 70
+local shakeDegrees = 0
+local shakeDecay = 0
 
 type Scene = {
 	Unit: Model,
@@ -178,39 +193,131 @@ local function fadeTo(to: string?, seconds: number?)
 	hold(seconds or 0.6)
 end
 
--- Types the text out; the first press finishes the line, the next one advances.
-local function say(header: string, text: string)
+local function startRig()
+	local camera = Workspace.CurrentCamera
+	camera.CameraType = Enum.CameraType.Scriptable
+	camBase.Value = camera.CFrame
+	baseFov = camera.FieldOfView
+	shakeDegrees = 0
+	RunService:BindToRenderStep(RIG_NAME, Enum.RenderPriority.Camera.Value + 1, function(deltaTime: number)
+		shakeDegrees = math.max(0, shakeDegrees - shakeDecay * deltaTime)
+		local amount = math.rad(shakeDegrees)
+		local offset = CFrame.Angles(rng:NextNumber(-amount, amount), rng:NextNumber(-amount, amount), rng:NextNumber(-amount, amount) * 0.5)
+		camera.CFrame = camBase.Value * offset
+	end)
+end
+
+local function stopRig()
+	RunService:UnbindFromRenderStep(RIG_NAME)
+	shakeDegrees = 0
+	Workspace.CurrentCamera.FieldOfView = baseFov
+end
+
+-- A shake that peaks at `degrees` and dies out over `seconds`.
+local function shake(degrees: number, seconds: number)
+	if skipping then
+		return
+	end
+	shakeDegrees = math.max(shakeDegrees, degrees)
+	shakeDecay = degrees / seconds
+end
+
+-- Snaps the lens in by `degrees` of field of view, then eases back.
+local function zoomPunch(degrees: number, seconds: number)
+	local camera = Workspace.CurrentCamera
+	camera.FieldOfView = baseFov - degrees
+	TweenService:Create(camera, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FieldOfView = baseFov }):Play()
+end
+
+-- Whips the camera onto an actor's face from a low angle.
+local function focus(scene: Scene, actorName: string?)
+	local model = if actorName then scene.Actors[actorName] else nil
+	local head = model and model:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") then
+		return
+	end
+	local face = head.Position
+	local from = face + head.CFrame.LookVector * FOCUS_DISTANCE + head.CFrame.RightVector * FOCUS_SIDE - Vector3.new(0, FOCUS_DROP, 0)
+	TweenService:Create(camBase, TweenInfo.new(if skipping then 0 else 0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Value = CFrame.lookAt(from, face),
+	}):Play()
+	tween(Workspace.CurrentCamera, 0.3, { FieldOfView = baseFov })
+end
+
+-- Types the text out; the first press finishes the line, the next one advances. `fx` sets the delivery:
+-- Shout punches in with yellow, trembling text; Stress pushes in slowly while the text shakes harder and reddens,
+-- then slams on the last word; Push is a gentle push-in.
+local function say(header: string, text: string, fx: string?)
 	speakerLabel.Text = header
 	bodyLabel.Text = ""
+	bodyLabel.Rotation = 0
+	bodyLabel.TextColor3 = if fx == "Shout" then Theme.MOOD else Theme.TEXT
 	dialogue.Visible = true
 	Juice.PopIn(dialogue)
 	advanced = false
-	for index = 1, utf8.len(text) or #text do
+
+	local length = utf8.len(text) or #text
+	local charDelay = if fx == "Stress" then STRESS_CHAR_DELAY else CHAR_DELAY
+	local camera = Workspace.CurrentCamera
+	if fx == "Shout" then
+		zoomPunch(14, 0.7)
+		shake(1.4, 0.6)
+		Sfx.Play("BossHit", 1.3)
+	elseif fx == "Stress" then
+		tween(camera, length * charDelay, { FieldOfView = baseFov - 20 })
+	elseif fx == "Push" then
+		tween(camera, 2.5, { FieldOfView = baseFov - 8 })
+	end
+
+	local tremble = 0
+	for index = 1, length do
 		if advanced or skipping then
 			break
 		end
+		local progress = index / length
 		bodyLabel.Text = string.sub(text, 1, (utf8.offset(text, index + 1) or (#text + 1)) - 1)
+		if fx == "Shout" then
+			tremble = 1.5
+		elseif fx == "Stress" then
+			tremble = 3.5 * progress
+			bodyLabel.TextColor3 = Theme.TEXT:Lerp(Theme.BUG, progress)
+			shake(0.6 * progress, 0.3)
+		end
+		bodyLabel.Rotation = rng:NextNumber(-tremble, tremble)
 		if index % 3 == 0 then
 			Sfx.Play("KeyClick", 1.2)
 		end
-		task.wait(CHAR_DELAY)
+		task.wait(charDelay)
 	end
 	bodyLabel.Text = text
+	if fx == "Stress" and not skipping then
+		-- The slam on the last word.
+		bodyLabel.TextColor3 = Theme.BUG
+		camera.FieldOfView = baseFov - 26
+		shake(3.5, 0.9)
+		Juice.Shake(dialogue)
+		Sfx.Play("BossHit", 0.75)
+	elseif fx == "Shout" then
+		Juice.Shake(dialogue)
+	end
+
 	advanced = false
 	while not advanced and not skipping do
-		task.wait()
+		-- Keep a little tremble going while the line sits on screen.
+		bodyLabel.Rotation = rng:NextNumber(-tremble, tremble) * 0.4
+		task.wait(0.03)
 	end
+	bodyLabel.Rotation = 0
 	dialogue.Visible = false
 end
 
 local function shot(scene: Scene, step: Cutscenes.Step)
-	local camera = Workspace.CurrentCamera
-	camera.CameraType = Enum.CameraType.Scriptable
 	local from = scene.Markers[step.From :: string]
-	camera.CFrame = from.CFrame
+	camBase.Value = from.CFrame
+	Workspace.CurrentCamera.FieldOfView = baseFov
 	local seconds = step.Seconds or 1
 	if step.To then
-		local move = tween(camera, seconds, { CFrame = scene.Markers[step.To].CFrame })
+		local move = tween(camBase, seconds, { Value = scene.Markers[step.To].CFrame })
 		hold(seconds)
 		move:Cancel()
 	else
@@ -263,6 +370,11 @@ local function prop(scene: Scene, step: Cutscenes.Step)
 			local closed = original * CFrame.new(0, -lid.Size.Y / 2, 0) * CFrame.Angles(math.rad(100), 0, 0) * CFrame.new(0, lid.Size.Y / 2, 0)
 			tween(lid, if skipping then 0 else 0.35, { CFrame = closed })
 			Sfx.Play("GradeStamp", 1.4)
+			-- The slam lands with a jolt.
+			task.delay(0.3, function()
+				shake(1.8, 0.5)
+				zoomPunch(8, 0.5)
+			end)
 			table.insert(scene.Restores, function()
 				lid.CFrame = original
 			end)
@@ -339,7 +451,8 @@ local function runStep(scene: Scene, step: Cutscenes.Step)
 	elseif kind == "Prop" then
 		prop(scene, step)
 	elseif kind == "Line" then
-		say(string.upper(step.Speaker or ""), step.Text or "")
+		focus(scene, step.Focus)
+		say(string.upper(step.Speaker or ""), step.Text or "", step.Fx)
 	elseif kind == "PhoneText" then
 		say(`{string.upper(step.Speaker or "")}  ·  new message`, step.Text or "")
 	elseif kind == "NameStartup" then
@@ -377,6 +490,7 @@ local function play(id: string, copy: { [string]: any })
 	hideModel(scene, character)
 	hideModel(scene, unit:FindFirstChild("SiblingModel", true))
 	setControls(false)
+	startRig()
 	setBars(true)
 	skipButton.Visible = true
 	Music.Play("Cutscene", 1.5)
@@ -408,6 +522,7 @@ local function play(id: string, copy: { [string]: any })
 	for _, restore in scene.Restores do
 		restore()
 	end
+	stopRig()
 	local camera = Workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Custom
 	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -446,6 +561,9 @@ function CutsceneController.Play(payload: any)
 end
 
 function CutsceneController.Init()
+	camBase = Instance.new("CFrameValue")
+	camBase.Name = "CutsceneCameraBase"
+
 	gui = Theme.Screen("Cutscene", 20)
 	gui.IgnoreGuiInset = true
 

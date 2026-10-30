@@ -78,11 +78,68 @@ local function glow(target: BasePart, color: Color3, range: number)
 	light.Parent = target
 end
 
-local function buildSibling(unit: Instance, cframe: CFrame): BasePart?
+-- The brother's senior-engineer uniform: a navy fleece vest over a charcoal tee, jeans, glasses, a lanyard badge
+-- and tidy hair. Built from plain parts welded to the rig, so nothing depends on catalog items.
+local BROTHER_SKIN = Color3.fromRGB(226, 178, 140)
+local BROTHER_TEE = Color3.fromRGB(58, 62, 74)
+local BROTHER_VEST = Color3.fromRGB(40, 56, 98)
+local BROTHER_JEANS = Color3.fromRGB(50, 68, 104)
+local BROTHER_HAIR = Color3.fromRGB(56, 38, 28)
+
+local function wornPiece(model: Model, onto: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material): Part
+	local piece = part(model, name, size, onto.CFrame * offset, color, material)
+	piece.Anchored = false
+	piece.CanCollide = false
+	piece.CanQuery = false
+	piece.CanTouch = false
+	piece.Massless = true
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = onto
+	weld.Part1 = piece
+	weld.Parent = piece
+	return piece
+end
+
+local function buildBrother(): Model?
+	local description = Instance.new("HumanoidDescription")
+	description.HeadColor = BROTHER_SKIN
+	description.LeftArmColor = BROTHER_SKIN
+	description.RightArmColor = BROTHER_SKIN
+	description.TorsoColor = BROTHER_TEE
+	description.LeftLegColor = BROTHER_JEANS
+	description.RightLegColor = BROTHER_JEANS
 	local ok, model = pcall(function(): Model
-		return Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), Enum.HumanoidRigType.R15)
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
 	end)
 	if not ok or not model then
+		return nil
+	end
+
+	-- Faces are local -Z on R15 heads and torsos; sizes scale off each part so any rig proportions fit.
+	local head = model:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		local h = head.Size
+		wornPiece(model, head, "Hair", Vector3.new(h.X * 1.06, h.Y * 0.3, h.Z * 1.06), CFrame.new(0, h.Y * 0.42, 0.03), BROTHER_HAIR, Enum.Material.Fabric)
+		for _, side in { -1, 1 } do
+			local lens = wornPiece(model, head, "GlassesLens", Vector3.new(h.X * 0.26, h.Y * 0.18, 0.04), CFrame.new(side * h.X * 0.18, h.Y * 0.08, -h.Z / 2 - 0.02), Color3.fromRGB(20, 20, 26), Enum.Material.SmoothPlastic)
+			lens.Transparency = 0.2
+		end
+		wornPiece(model, head, "GlassesBridge", Vector3.new(h.X * 0.12, 0.05, 0.04), CFrame.new(0, h.Y * 0.1, -h.Z / 2 - 0.02), Color3.fromRGB(20, 20, 26), Enum.Material.SmoothPlastic)
+	end
+	local torso = model:FindFirstChild("UpperTorso")
+	if torso and torso:IsA("BasePart") then
+		local t = torso.Size
+		wornPiece(model, torso, "FleeceVest", Vector3.new(t.X * 1.06, t.Y * 0.95, t.Z * 1.12), CFrame.new(0, -t.Y * 0.02, 0), BROTHER_VEST, Enum.Material.Fabric)
+		wornPiece(model, torso, "TeeCollar", Vector3.new(t.X * 0.34, t.Y * 0.14, 0.05), CFrame.new(0, t.Y * 0.42, -t.Z * 0.57), BROTHER_TEE, Enum.Material.Fabric)
+		wornPiece(model, torso, "Lanyard", Vector3.new(0.07, t.Y * 0.5, 0.03), CFrame.new(0, t.Y * 0.12, -t.Z * 0.58), Color3.fromRGB(200, 60, 70), Enum.Material.Fabric)
+		wornPiece(model, torso, "Badge", Vector3.new(0.36, 0.46, 0.04), CFrame.new(0, -t.Y * 0.2, -t.Z * 0.59), Color3.fromRGB(240, 240, 245), Enum.Material.SmoothPlastic)
+	end
+	return model
+end
+
+local function buildSibling(unit: Instance, cframe: CFrame): BasePart?
+	local model = buildBrother()
+	if not model then
 		-- Fallback stand-in so the sibling prompt always exists.
 		local stand = part(unit, "Sibling", Vector3.new(2, 5, 1), cframe * CFrame.new(0, 2.5, 0), COLOR_AMBER, Enum.Material.SmoothPlastic)
 		return stand
@@ -185,6 +242,7 @@ return {
 	nightLight = nightLight,
 	glow = glow,
 	buildSibling = buildSibling,
+	buildBrother = buildBrother,
 	cylinder = cylinder,
 	led = led,
 	monitor = monitor,

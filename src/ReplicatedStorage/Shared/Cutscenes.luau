@@ -19,6 +19,8 @@ export type Step = {
 	Prop: string?, -- "LaptopLid" | "CashStack" | "PhoneBuzz"
 	Action: string?,
 	Speaker: string?,
+	Focus: string?, -- Line: the actor the camera turns to while the line plays
+	Fx: string?, -- Line: how it's delivered, one of LINE_FX
 }
 
 export type Line = { Speaker: string, Text: string }
@@ -34,6 +36,11 @@ export type Copy = {
 }
 
 local Cutscenes = {}
+
+-- Line deliveries: Shout = camera punch-in and shaking text; Stress = a slow push-in with text that shakes harder
+-- until a slam on the last word; Push = a gentle push-in.
+Cutscenes.LINE_FX = { Shout = true, Stress = true, Push = true } :: { [string]: boolean }
+local ACTORS = { Player = true, Brother = true }
 
 -- Markers each layout must place (invisible parts named Marker_<Name>; cameras look along the part's front).
 Cutscenes.HOMELAB_MARKERS = {
@@ -59,8 +66,8 @@ Cutscenes.OFFICE_MARKERS = {
 	PlayerCenter = true,
 } :: { [string]: boolean }
 
-local function line(source: Line): Step
-	return { Kind = "Line", Speaker = source.Speaker, Text = source.Text }
+local function line(source: Line, focus: string?, fx: string?): Step
+	return { Kind = "Line", Speaker = source.Speaker, Text = source.Text, Focus = focus, Fx = fx }
 end
 
 local function act1Intro(copy: Copy): { Step }
@@ -75,8 +82,9 @@ local function act1Intro(copy: Copy): { Step }
 		{ Kind = "Shot", From = "CamShoulder", Seconds = 1.2 },
 		{ Kind = "Animate", Actor = "Brother", Animation = "LaptopClose", Wait = true },
 		{ Kind = "Prop", Prop = "LaptopLid", Action = "Close" },
-		line(copy.Act1Intro[1]),
-		line(copy.Act1Intro[2]),
+		{ Kind = "Animate", Actor = "Brother", Animation = "Talk" },
+		line(copy.Act1Intro[1], "Brother", "Shout"),
+		line(copy.Act1Intro[2], "Brother", "Stress"),
 		{ Kind = "Actor", Actor = "Brother", Marker = "BrotherEnter", Walk = true, Seconds = 1.6 },
 		{ Kind = "Shot", From = "CamFace", Seconds = 1.2 },
 		{ Kind = "Title", Text = copy.Titles.Act1, Sub = `Rent: ${copy.RentGoal}` },
@@ -92,11 +100,12 @@ local function act1End(copy: Copy): { Step }
 		{ Kind = "Prop", Prop = "CashStack", Action = "Show" },
 		{ Kind = "Animate", Actor = "Player", Animation = "HandOverCash", Wait = true },
 		{ Kind = "Animate", Actor = "Brother", Animation = "CountCash", Wait = true },
-		line(copy.Act1End[1]),
-		line(copy.Act1End[2]),
+		{ Kind = "Animate", Actor = "Brother", Animation = "Talk" },
+		line(copy.Act1End[1], "Brother", "Push"),
+		line(copy.Act1End[2], "Brother", "Shout"),
 		{ Kind = "Actor", Actor = "Brother", Marker = "BrotherDoor", Walk = true, Seconds = 1.6 },
 		{ Kind = "Animate", Actor = "Brother", Animation = "Talk" },
-		line(copy.Act1End[3]),
+		line(copy.Act1End[3], "Brother", "Push"),
 		{ Kind = "Title", Text = copy.Titles.Act1Done },
 		-- Ends black: the server swaps the unit to the office while the screen is dark.
 		{ Kind = "Fade", To = "Black", Seconds = 0.8 },
@@ -141,6 +150,12 @@ function Cutscenes.Validate(steps: { Step }, markers: { [string]: boolean }): (b
 			if name and not markers[name] then
 				return false, `step {index}: unknown marker {name}`
 			end
+		end
+		if step.Fx and not Cutscenes.LINE_FX[step.Fx] then
+			return false, `step {index}: unknown effect {step.Fx}`
+		end
+		if step.Focus and not ACTORS[step.Focus] then
+			return false, `step {index}: unknown focus {step.Focus}`
 		end
 		if step.Seconds ~= nil and step.Seconds <= 0 then
 			return false, `step {index}: Seconds must be positive`

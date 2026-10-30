@@ -77,7 +77,7 @@ All dialogue is English, with a generic setting. The brother is the player's old
 2. **Close:** the player's avatar on the couch, face lit by the laptop.
 3. **Over the shoulder:** the brother walks in and reads the screen, then reaches over and **closes the laptop lid**.
 4. Brother: *"You're STILL doing this garbage? Typing wishes at a robot all night won't get you anywhere!"*
-5. Brother: *"One month. Make rent, or you and your little robot pal are sleeping on the curb."* He walks off.
+5. Brother: *"One month. I'll give you one month to make rent or you and your little robot pal are sleeping on the curb!"* He walks off.
 6. **Close on the player's face.** Title card: **ACT 1: MAKE RENT**, with the goal "Rent: $1500" (read from `GameConfig.RENT_GOAL`).
 
 This replaces `IntroController`'s overlay. The `SeenIntro` save flag keeps meaning "Act 1 opening seen".

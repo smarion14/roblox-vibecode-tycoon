@@ -39,7 +39,7 @@ StoryText.ACT1_END = {
 -- Act 1 opening cutscene lines.
 StoryText.ACT1_INTRO = {
 	{ Speaker = "Brother", Text = "You're STILL doing this garbage? Typing wishes at a robot all night won't get you anywhere!" },
-	{ Speaker = "Brother", Text = "One month. Make rent, or you and your little robot pal are sleeping on the curb." },
+	{ Speaker = "Brother", Text = "One month. I'll give you one month to make rent or you and your little robot pal are sleeping on the curb!" },
 } :: { { Speaker: string, Text: string } }
 
 StoryText.ACT2_INTRO_TEXT = "Two weeks later…"
