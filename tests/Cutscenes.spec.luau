@@ -59,6 +59,16 @@ tests["act 2 intro asks for a name before its title"] = function()
 	assert(indexOf(steps, "NameStartup") < indexOf(steps, "Title"))
 end
 
+tests["the player sits on the couch in the act 1 intro"] = function()
+	local seated = false
+	for _, step in Cutscenes.Get("Act1Intro", COPY) do
+		if step.Kind == "Actor" and step.Marker == "CouchSeat" then
+			seated = step.Seated == true
+		end
+	end
+	assert(seated, "the CouchSeat actor step must be Seated")
+end
+
 tests["validate rejects a missing marker"] = function()
 	local steps: { Cutscenes.Step } = {
 		{ Kind = "Shot", From = "Nowhere", Seconds = 1 } :: any,

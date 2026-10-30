@@ -13,6 +13,7 @@ export type Step = {
 	Actor: string?, -- "Player" | "Brother"
 	Marker: string?,
 	Walk: boolean?,
+	Seated: boolean?, -- Actor: the marker is a seat surface, so place the rig sitting on it
 	Animation: string?,
 	Wait: boolean?,
 	Prop: string?, -- "LaptopLid" | "CashStack" | "PhoneBuzz"
@@ -64,7 +65,7 @@ end
 
 local function act1Intro(copy: Copy): { Step }
 	return {
-		{ Kind = "Actor", Actor = "Player", Marker = "CouchSeat" },
+		{ Kind = "Actor", Actor = "Player", Marker = "CouchSeat", Seated = true },
 		{ Kind = "Animate", Actor = "Player", Animation = "SitCouch" },
 		{ Kind = "Fade", To = "Clear", Seconds = 0.8 },
 		{ Kind = "Shot", From = "CamWide", To = "CamCouch", Seconds = 3.2 },

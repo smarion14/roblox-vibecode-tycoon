@@ -125,9 +125,18 @@ local function hideModel(scene: Scene, model: Instance?)
 			table.insert(parts, descendant)
 		end
 	end
+	-- Hidden parts don't hide a Humanoid's floating name, so turn that off too.
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	local nameDisplay = if humanoid then humanoid.DisplayDistanceType else nil
+	if humanoid then
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end
 	table.insert(scene.Restores, function()
 		for _, hidden in parts do
 			hidden.LocalTransparencyModifier = 0
+		end
+		if humanoid and nameDisplay then
+			humanoid.DisplayDistanceType = nameDisplay
 		end
 	end)
 end
@@ -214,7 +223,7 @@ local function actor(scene: Scene, step: Cutscenes.Step)
 	local at = scene.Markers[step.Marker :: string].CFrame
 	local model = scene.Actors[kind]
 	if not model then
-		local spawned = Actors.Spawn(kind :: Actors.ActorKind, at)
+		local spawned = Actors.Spawn(kind :: Actors.ActorKind, at, step.Seated)
 		if spawned then
 			scene.Actors[kind] = spawned
 		end
@@ -223,7 +232,7 @@ local function actor(scene: Scene, step: Cutscenes.Step)
 		task.spawn(Actors.WalkTo, model, at, seconds)
 		hold(seconds + 0.05)
 	else
-		Actors.Place(model, at)
+		Actors.Place(model, at, step.Seated)
 	end
 end
 

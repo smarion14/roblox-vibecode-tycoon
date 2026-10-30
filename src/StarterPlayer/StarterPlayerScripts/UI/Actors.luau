@@ -24,12 +24,17 @@ local function rootOf(model: Model): BasePart?
 	return model:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
--- Marker CFrames sit on the floor; a rig's root sits hip height plus half its own height above that.
-local function rootOffset(model: Model): CFrame
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
+-- Standing markers sit on the floor: the root goes hip height plus half its own height above them. Seat markers
+-- sit on the seat surface: a seated rig's thighs rest just under its root, so it goes a little under half a root
+-- height above the seat, whatever the avatar's hip height.
+local function rootOffset(model: Model, seated: boolean?): CFrame
 	local root = rootOf(model)
-	local height = (if humanoid then humanoid.HipHeight else 2) + (if root then root.Size.Y / 2 else 1)
-	return CFrame.new(0, height, 0)
+	local rootHalf = if root then root.Size.Y / 2 else 1
+	if seated then
+		return CFrame.new(0, rootHalf * 0.9, 0)
+	end
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	return CFrame.new(0, (if humanoid then humanoid.HipHeight else 2) + rootHalf, 0)
 end
 
 local function animatorOf(model: Model): Animator?
@@ -85,7 +90,7 @@ end
 
 -- A local copy standing on a floor-level CFrame. The root is anchored and moved by tweens; the body follows
 -- through its joints, so animations still play.
-function Actors.Spawn(kind: ActorKind, at: CFrame): Model?
+function Actors.Spawn(kind: ActorKind, at: CFrame, seated: boolean?): Model?
 	local original = source(kind)
 	if not original then
 		return nil
@@ -116,7 +121,7 @@ function Actors.Spawn(kind: ActorKind, at: CFrame): Model?
 	copy.Parent = Workspace
 	local root = rootOf(copy)
 	if root then
-		root.CFrame = at * rootOffset(copy)
+		root.CFrame = at * rootOffset(copy, seated)
 	end
 	return copy
 end
@@ -165,10 +170,10 @@ function Actors.WalkTo(model: Model, to: CFrame, seconds: number)
 	root.CFrame = target
 end
 
-function Actors.Place(model: Model, at: CFrame)
+function Actors.Place(model: Model, at: CFrame, seated: boolean?)
 	local root = rootOf(model)
 	if root then
-		root.CFrame = at * rootOffset(model)
+		root.CFrame = at * rootOffset(model, seated)
 	end
 end
 

@@ -221,10 +221,8 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	look("CamShoulder", at(-6.5, 7, 17), at(-8, 2.5, 6.5))
 	look("CamFace", at(-8, 4.5, 7), at(-8, 4, 11.3))
 	look("CamDoor", at(1.5, 5, 20), at(1.5, 3.5, 12))
-	-- Actors (floor level; the couch seat is lowered for a seated rig).
-	-- Actors stand a root height above their marker; the sit pose bends at the hips, so this sits low enough
-	-- (about 1.6 under the 2.3-stud cushion top) for a seated rig to land on the cushion instead of hovering.
-	look("CouchSeat", at(-8, 0.7, 11.3), at(-8, 0.7, 0))
+	-- Actors (floor level, except the couch seat at cushion height).
+	look("CouchSeat", at(-8, 2.3, 11.3), at(-8, 2.3, 0))
 	look("BrotherEnter", at(-14, 0, 18), at(-14, 0, 0))
 	look("BrotherBehindCouch", at(-8, 0, 15.5), at(-8, 0, 0))
 	look("HandoverPlayer", at(0, 0, 12), at(3, 0, 12))
