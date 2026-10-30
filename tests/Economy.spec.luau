@@ -51,6 +51,8 @@ end
 
 tests["score bounds"] = function()
 	assert(Economy.PerformanceScore(1, 1, 30) == 2)
+	-- a battle has roughly 15-20 squashes, so a 15 streak earns full combo credit
+	assert(Economy.PerformanceScore(1, 1, 15) == 2)
 	assert(Economy.PerformanceScore(0, 0, 0) == 0)
 	assert(math.abs(Economy.PerformanceScore(0 / 0, 2, -5) - 0.6) < 1e-9)
 end

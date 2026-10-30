@@ -10,8 +10,8 @@ local function allPrompts(): { string }
 			table.insert(prompts, prompt)
 		end
 	end
-	for _, prompt in PromptBank.BATTLE_PROMPTS do
-		table.insert(prompts, prompt)
+	for _, phrase in PromptBank.BOSS_PHRASES do
+		table.insert(prompts, phrase)
 	end
 	return prompts
 end
@@ -41,7 +41,11 @@ tests["every component has burst prompts"] = function()
 		local list = PromptBank.BURST_PROMPTS[component]
 		assert(list and #list >= 8, `{component} needs at least 8 burst prompts`)
 	end
-	assert(#PromptBank.BATTLE_PROMPTS >= 10, "need at least 10 battle prompts")
+	assert(#PromptBank.BOSS_PHRASES >= 6, "need at least 6 boss phrases")
+	for _, phrase in PromptBank.BOSS_PHRASES do
+		local words = #string.split(phrase, " ")
+		assert(words >= 3 and words <= 5, `boss phrase "{phrase}" needs 3-5 words`)
+	end
 	assert(#PromptBank.BUG_WORDS >= 12, "need at least 12 bug words")
 end
 
@@ -74,7 +78,7 @@ tests["remote names map to themselves"] = function()
 		assert(key == value, `{key} maps to {value}`)
 		count += 1
 	end
-	assert(count == 15, `expected 15 remote names, got {count}`)
+	assert(count == 14, `expected 14 remote names, got {count}`)
 end
 
 tests["intro contains the exact doubter line"] = function()

@@ -11,7 +11,6 @@ local Economy = require(Shared:WaitForChild("Economy"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local PromptBank = require(Shared:WaitForChild("PromptBank"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
-local TypingJudge = require(Shared:WaitForChild("TypingJudge"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
@@ -24,26 +23,11 @@ type ActiveBattle = {
 }
 
 local TICK_SECONDS = 0.1
-local PROMPT_RATE_LIMIT = 5
 local SQUASH_RATE_LIMIT = 15
-local JUDGE: BattleState.Judge = {
-	Accuracy = TypingJudge.Accuracy,
-	IsPlausible = TypingJudge.IsPlausible,
-	TimeAdjustment = TypingJudge.TimeAdjustment,
-}
 
 local BattleService = {}
 
 local battles: { [Player]: ActiveBattle } = {}
-
-local function shuffled(list: { string }, rng: Random): { string }
-	local copy = table.clone(list)
-	for i = #copy, 2, -1 do
-		local j = rng:NextInteger(1, i)
-		copy[i], copy[j] = copy[j], copy[i]
-	end
-	return copy
-end
 
 local function snapshotKey(snapshot: BattleState.BattleSnapshot): string
 	local resolved = 0
@@ -52,7 +36,7 @@ local function snapshotKey(snapshot: BattleState.BattleSnapshot): string
 			resolved += 1
 		end
 	end
-	return `{snapshot.Mood}|{snapshot.Combo}|{snapshot.Progress}|{snapshot.PromptText}|{snapshot.Status}|{resolved}`
+	return `{snapshot.Mood}|{snapshot.Combo}|{snapshot.BossHp}|{snapshot.Status}|{resolved}`
 end
 
 local function pushUpdate(player: Player, active: ActiveBattle, force: boolean)
@@ -120,8 +104,8 @@ local function onDeployTerminal(player: Player)
 	local battle = BattleState.New(
 		clockStart,
 		Economy.AverageQuality(save.Inventory),
-		shuffled(PromptBank.BATTLE_PROMPTS, rng),
 		PromptBank.BUG_WORDS,
+		PromptBank.BOSS_PHRASES[rng:NextInteger(1, #PromptBank.BOSS_PHRASES)],
 		GameConfig.BATTLE_RULES,
 		function(): number
 			return rng:NextNumber()
@@ -132,7 +116,10 @@ local function onDeployTerminal(player: Player)
 	for _, bug in battle.Bugs do
 		table.insert(bugs, {
 			Id = bug.Id,
+			Kind = bug.Kind,
+			Wave = bug.Wave,
 			Word = bug.Word,
+			Words = bug.Words,
 			Side = bug.Side,
 			SpawnOffset = bug.SpawnAt - clockStart,
 			ReachOffset = bug.ReachAt - clockStart,
@@ -144,11 +131,9 @@ local function onDeployTerminal(player: Player)
 	StartupDataModule.SetActivity(player, "Battle")
 	RemoteManager.FireClient(RemoteNames.BattleStarted, player, {
 		ServerStart = serverStart,
-		DeadlineOffset = battle.Deadline - clockStart,
 		ClientName = job.Name,
-		PromptText = battle.Prompts[1],
 		Mood = battle.Mood,
-		ShipPromptsRequired = GameConfig.BATTLE_RULES.ShipPromptsRequired,
+		WaveCount = #GameConfig.BATTLE_RULES.Waves,
 		Bugs = bugs,
 	})
 
@@ -167,20 +152,6 @@ local function onDeployTerminal(player: Player)
 	end)
 end
 
-local function onSubmitPrompt(player: Player, text: any)
-	if type(text) ~= "string" then
-		return
-	end
-	-- Oversize text is cut and judged (it scores 0) rather than dropped, so the client is never left waiting.
-	text = string.sub(text, 1, GameConfig.MAX_REMOTE_STRING)
-	local active = battles[player]
-	if not active or not active.Running then
-		return
-	end
-	BattleState.SubmitPrompt(active.Battle, text, os.clock(), JUDGE)
-	afterInput(player, active)
-end
-
 local function onSquash(player: Player, word: any)
 	if type(word) ~= "string" or #word > GameConfig.MAX_REMOTE_STRING then
 		return
@@ -197,7 +168,6 @@ function BattleService.Init() end
 
 function BattleService.Start()
 	PlotService.OnPromptTriggered("DeployTerminal", onDeployTerminal)
-	RemoteManager.Listen(RemoteNames.BattleSubmitPrompt, onSubmitPrompt, PROMPT_RATE_LIMIT, 1)
 	RemoteManager.Listen(RemoteNames.BattleSquash, onSquash, SQUASH_RATE_LIMIT, 1)
 	-- Leaving mid-battle settles nothing: the job and every built component are kept.
 	Players.PlayerRemoving:Connect(function(player: Player)

@@ -1,6 +1,6 @@
 --!strict
 -- Player-facing typing content. English, generic setting, lowercase ascii only.
--- Prompts must never contain a bug word: typing it would squash a bug mid-prompt.
+-- Prompts and boss phrases must never contain a bug word as a whole word.
 local PromptBank = {}
 
 PromptBank.BURST_PROMPTS = {
@@ -54,19 +54,16 @@ PromptBank.BURST_PROMPTS = {
 	},
 } :: { [string]: { string } }
 
-PromptBank.BATTLE_PROMPTS = {
-	"add a booking calendar and send reminder emails the day before",
-	"let customers pay online and email them a receipt right away",
-	"build a menu page that shows todays specials at the top",
-	"add a review section with star ratings under each service",
-	"make a map page that shows where the truck parks each day",
-	"add a sign up form that saves the email to the mailing list",
-	"show a banner when the shop is closed for the holidays",
-	"let staff mark an order as ready and notify the customer",
-	"add a search box that filters products as you type",
-	"build a simple admin page to edit prices and photos",
-	"add a gallery of before and after grooming photos",
-	"send a text message when a table becomes available",
+-- Boss bugs: a phrase typed word by word in the deploy battle. Words must never be bug words.
+PromptBank.BOSS_PHRASES = {
+	"memory overflow in production",
+	"infinite render storm",
+	"database deadlock at midnight",
+	"payment gateway timeout",
+	"corrupted session cache",
+	"unhandled promise rejection",
+	"broken login redirect chain",
+	"rogue scheduled job",
 }
 
 PromptBank.BUG_WORDS = {

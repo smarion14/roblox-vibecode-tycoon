@@ -9,7 +9,6 @@ local RemoteNames = {
 	SubmitBurstPrompt = "SubmitBurstPrompt",
 	BurstFinished = "BurstFinished",
 	BattleStarted = "BattleStarted",
-	BattleSubmitPrompt = "BattleSubmitPrompt",
 	BattleSquash = "BattleSquash",
 	BattleUpdate = "BattleUpdate",
 	BattleEnded = "BattleEnded",

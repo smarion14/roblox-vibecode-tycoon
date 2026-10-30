@@ -35,7 +35,7 @@ export type BurstRules = {
 }
 
 local GRADE_VALUE: { [string]: number } = { S = 3, A = 2, B = 1, C = 0 }
-local COMBO_FOR_FULL_CREDIT = 30
+local COMBO_FOR_FULL_CREDIT = 15
 local VALUATION_GAIN_PER_SCORE = 0.05
 local MAX_SCORE = 2
 

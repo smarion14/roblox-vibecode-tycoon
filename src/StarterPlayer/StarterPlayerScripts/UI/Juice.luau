@@ -92,6 +92,42 @@ function Juice.Pop(target: GuiObject, amount: number)
 	TweenService:Create(scale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
+-- Big centre-screen callout ("WAVE 2", "AMAZING!"): slams in oversized, holds, then lifts away.
+function Juice.Banner(layer: GuiObject, text: string, color: Color3, textSize: number?)
+	local banner = Instance.new("TextLabel")
+	banner.BackgroundTransparency = 1
+	banner.AnchorPoint = Vector2.new(0.5, 0.5)
+	banner.Position = UDim2.fromScale(0.5, 0.42)
+	banner.Size = UDim2.fromOffset(600, 70)
+	banner.Font = Enum.Font.GothamBlack
+	banner.TextSize = textSize or 46
+	banner.TextColor3 = color
+	banner.TextStrokeColor3 = Theme.BACKGROUND
+	banner.TextStrokeTransparency = 0
+	banner.Text = text
+	banner.Rotation = rng:NextInteger(-4, 4)
+	banner.ZIndex = 20
+	banner.Parent = layer
+
+	local scale = scaleOf(banner)
+	scale.Scale = 2.2
+	local slam = TweenService:Create(scale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+	slam.Completed:Once(function()
+		task.delay(0.55, function()
+			local lift = TweenService:Create(banner, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Position = UDim2.fromScale(0.5, 0.34),
+				TextTransparency = 1,
+				TextStrokeTransparency = 1,
+			})
+			lift.Completed:Once(function()
+				banner:Destroy()
+			end)
+			lift:Play()
+		end)
+	end)
+	slam:Play()
+end
+
 -- Short text that pops up and floats away, like "+6s" next to a timer.
 function Juice.FloatText(layer: GuiObject, position: UDim2, text: string, color: Color3)
 	local label = Instance.new("TextLabel")

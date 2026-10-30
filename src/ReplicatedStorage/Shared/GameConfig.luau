@@ -71,21 +71,23 @@ GameConfig.BURST_RULES = {
 	ErrorPenalty = 1.5,
 }
 
--- Battle countdown works like the burst one; CleanPromptAccuracy decides what counts as clean.
+-- Deploy battle: bugs only. Regular waves, then a boss phrase typed word by word while minions escort it.
+-- Each missing quality point (S=3 ... C=0 average) adds ExtraBugsPerMissingQuality bugs to every wave.
 GameConfig.BATTLE_RULES = {
-	ShipPromptsRequired = 4,
-	TimeLimit = 25,
-	CleanBonus = 8,
-	BonusPerPrompt = 2,
-	ErrorPenalty = 2,
-	BugTravelTime = 6,
+	Waves = {
+		{ Count = 4, Interval = 2.4, Travel = 7 },
+		{ Count = 7, Interval = 1.6, Travel = 6 },
+	},
 	FirstBugDelay = 2,
+	WaveGap = 3,
+	ExtraBugsPerMissingQuality = 1,
+	BossTravel = 22,
+	BossMinionInterval = 2.6,
+	BossMinionTravel = 6.5,
 	LatencyGrace = 0.25,
 	MoodHitPenalty = 15,
-	BadPromptPenalty = 5,
+	BossHitPenalty = 40,
 	MissedSquashPenalty = 3,
-	MinPromptAccuracy = 0.6,
-	CleanPromptAccuracy = 0.9,
 	MaxDuration = 120,
 	MaxCharsPerSecond = 20,
 }

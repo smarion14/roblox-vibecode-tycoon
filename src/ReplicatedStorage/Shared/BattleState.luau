@@ -1,60 +1,54 @@
 --!strict
 -- Pure: no requires, no Roblox APIs. Deterministic deploy-battle simulation the server runs on its own clock.
--- Clock, RNG and the typing judge are passed in.
+-- The battle is bugs only: regular waves, then a boss whose phrase is typed word by word. Clock and RNG are passed in.
+
+export type WaveRules = {
+	Count: number,
+	Interval: number,
+	Travel: number,
+}
 
 export type BattleRules = {
-	ShipPromptsRequired: number,
-	TimeLimit: number,
-	CleanBonus: number,
-	BonusPerPrompt: number,
-	ErrorPenalty: number,
-	BugTravelTime: number,
+	Waves: { WaveRules },
 	FirstBugDelay: number,
+	WaveGap: number,
+	ExtraBugsPerMissingQuality: number,
+	BossTravel: number,
+	BossMinionInterval: number,
+	BossMinionTravel: number,
 	LatencyGrace: number,
 	MoodHitPenalty: number,
-	BadPromptPenalty: number,
+	BossHitPenalty: number,
 	MissedSquashPenalty: number,
-	MinPromptAccuracy: number,
-	CleanPromptAccuracy: number,
 	MaxDuration: number,
 	MaxCharsPerSecond: number,
 }
 
-export type Judge = {
-	Accuracy: (expected: string, typed: string, forgivenEdits: number) -> number,
-	IsPlausible: (charCount: number, elapsed: number, maxCharsPerSecond: number) -> boolean,
-	TimeAdjustment: (
-		accuracy: number,
-		promptNumber: number,
-		rules: { CleanAccuracy: number, CleanBonus: number, BonusPerPrompt: number, ErrorPenalty: number }
-	) -> number,
-}
-
 export type BugState = "Pending" | "Squashed" | "Hit"
+export type BugKind = "Minion" | "Boss"
 export type BattleStatus = "Running" | "Shipped" | "Failed"
 
 export type Bug = {
 	Id: number,
+	Kind: BugKind,
+	Wave: number,
 	Word: string,
+	Words: { string },
+	Hp: number,
 	Side: number,
 	SpawnAt: number,
 	ReachAt: number,
+	LastHitAt: number,
 	State: BugState,
 }
 
 export type Battle = {
 	StartTime: number,
-	Deadline: number,
 	Mood: number,
 	Combo: number,
 	MaxCombo: number,
-	Progress: number,
-	PromptIndex: number,
-	PromptIssuedAt: number,
-	Prompts: { string },
+	Squashed: number,
 	Bugs: { Bug },
-	AccuracySum: number,
-	PromptsJudged: number,
 	Status: BattleStatus,
 	Rules: BattleRules,
 }
@@ -70,18 +64,15 @@ export type BattleSnapshot = {
 	Mood: number,
 	Combo: number,
 	Progress: number,
-	PromptText: string,
 	BugStates: { [number]: BugState },
+	BossHp: number,
 	Status: BattleStatus,
-	PromptsJudged: number,
-	DeadlineOffset: number,
 }
 
 local BASE_MOOD = 70
 local MOOD_PER_QUALITY = 10
 local MAX_MOOD = 100
-local BASE_SPAWN_INTERVAL = 1.6
-local SPAWN_INTERVAL_PER_QUALITY = 0.3
+local MAX_QUALITY = 3
 
 local BattleState = {}
 
@@ -98,44 +89,89 @@ local function bumpCombo(b: Battle)
 	b.MaxCombo = math.max(b.MaxCombo, b.Combo)
 end
 
+local function addBug(
+	bugs: { Bug },
+	kind: BugKind,
+	wave: number,
+	words: { string },
+	side: number,
+	spawnAt: number,
+	travel: number
+)
+	table.insert(bugs, {
+		Id = #bugs + 1,
+		Kind = kind,
+		Wave = wave,
+		Word = table.concat(words, " "),
+		Words = words,
+		Hp = #words,
+		Side = side,
+		SpawnAt = spawnAt,
+		ReachAt = spawnAt + travel,
+		LastHitAt = spawnAt,
+		State = "Pending",
+	})
+end
+
+-- The battle ends once nothing is left pending: shipped if the client is still on the call.
+local function settle(b: Battle)
+	if b.Status ~= "Running" then
+		return
+	end
+	if b.Mood <= 0 then
+		b.Status = "Failed"
+		return
+	end
+	for _, bug in b.Bugs do
+		if bug.State == "Pending" then
+			return
+		end
+	end
+	b.Status = "Shipped"
+end
+
 function BattleState.New(
 	startTime: number,
 	avgQuality: number,
-	prompts: { string },
 	bugWords: { string },
+	bossPhrase: string,
 	rules: BattleRules,
 	rng: () -> number
 ): Battle
 	local bugs: { Bug } = {}
-	local interval = BASE_SPAWN_INTERVAL + SPAWN_INTERVAL_PER_QUALITY * avgQuality
+	local extraBugs = math.floor((MAX_QUALITY - math.clamp(avgQuality, 0, MAX_QUALITY)) * rules.ExtraBugsPerMissingQuality)
+
 	local spawnAt = startTime + rules.FirstBugDelay
-	while spawnAt <= startTime + rules.MaxDuration do
+	for waveIndex, wave in rules.Waves do
+		for _ = 1, wave.Count + extraBugs do
+			local word = pick(bugWords, rng())
+			local side = if rng() < 0.5 then -1 else 1
+			addBug(bugs, "Minion", waveIndex, { word }, side, spawnAt, wave.Travel)
+			spawnAt += wave.Interval
+		end
+		spawnAt += rules.WaveGap
+	end
+
+	-- Boss wave: one slow bug carrying a phrase, escorted by minions that all land before it does,
+	-- so the last moment of the battle is the boss alone.
+	local bossWave = #rules.Waves + 1
+	local bossSpawn = spawnAt
+	addBug(bugs, "Boss", bossWave, string.split(bossPhrase, " "), if rng() < 0.5 then -1 else 1, bossSpawn, rules.BossTravel)
+	local minionSpawn = bossSpawn + rules.BossMinionInterval
+	while minionSpawn + rules.BossMinionTravel < bossSpawn + rules.BossTravel do
 		local word = pick(bugWords, rng())
 		local side = if rng() < 0.5 then -1 else 1
-		table.insert(bugs, {
-			Id = #bugs + 1,
-			Word = word,
-			Side = side,
-			SpawnAt = spawnAt,
-			ReachAt = spawnAt + rules.BugTravelTime,
-			State = "Pending",
-		})
-		spawnAt += interval
+		addBug(bugs, "Minion", bossWave, { word }, side, minionSpawn, rules.BossMinionTravel)
+		minionSpawn += rules.BossMinionInterval
 	end
 
 	return {
 		StartTime = startTime,
-		Deadline = startTime + rules.TimeLimit,
 		Mood = math.clamp(BASE_MOOD + MOOD_PER_QUALITY * avgQuality, BASE_MOOD, MAX_MOOD),
 		Combo = 0,
 		MaxCombo = 0,
-		Progress = 0,
-		PromptIndex = 1,
-		PromptIssuedAt = startTime,
-		Prompts = prompts,
+		Squashed = 0,
 		Bugs = bugs,
-		AccuracySum = 0,
-		PromptsJudged = 0,
 		Status = "Running",
 		Rules = rules,
 	}
@@ -149,15 +185,22 @@ function BattleState.Tick(b: Battle, now: number)
 	for _, bug in b.Bugs do
 		if bug.State == "Pending" and now > bug.ReachAt + b.Rules.LatencyGrace then
 			bug.State = "Hit"
-			b.Mood -= b.Rules.MoodHitPenalty
+			b.Mood -= if bug.Kind == "Boss" then b.Rules.BossHitPenalty else b.Rules.MoodHitPenalty
 			b.Combo = 0
 		end
 	end
 
-	local outOfTime = now > b.Deadline + b.Rules.LatencyGrace or now > b.StartTime + b.Rules.MaxDuration
-	if b.Mood <= 0 or outOfTime then
+	if now > b.StartTime + b.Rules.MaxDuration then
 		b.Status = "Failed"
+		return
 	end
+	settle(b)
+end
+
+-- A word can't be typed faster than the typing cap allows after its target appears (or after the last boss hit).
+local function reachable(bug: Bug, word: string, now: number, rules: BattleRules): boolean
+	local earliest = bug.LastHitAt + #word / rules.MaxCharsPerSecond
+	return bug.State == "Pending" and earliest <= now and now <= bug.ReachAt + rules.LatencyGrace
 end
 
 function BattleState.Squash(b: Battle, word: string, now: number): boolean
@@ -167,100 +210,71 @@ function BattleState.Squash(b: Battle, word: string, now: number): boolean
 	end
 
 	local wanted = normalizeWord(word)
+	local rules = b.Rules
+
+	-- Boss first: its next unbroken word.
 	for _, bug in b.Bugs do
-		-- A bug can't be typed faster than the typing cap allows after it appears.
-		local earliest = bug.SpawnAt + #bug.Word / b.Rules.MaxCharsPerSecond
-		if
-			bug.State == "Pending"
-			and bug.Word == wanted
-			and earliest <= now
-			and now <= bug.ReachAt + b.Rules.LatencyGrace
-		then
+		if bug.Kind == "Boss" and bug.State == "Pending" then
+			local nextWord = bug.Words[#bug.Words - bug.Hp + 1]
+			if nextWord == wanted and reachable(bug, wanted, now, rules) then
+				bug.Hp -= 1
+				bug.LastHitAt = now
+				bumpCombo(b)
+				if bug.Hp <= 0 then
+					bug.State = "Squashed"
+					b.Squashed += 1
+				end
+				settle(b)
+				return true
+			end
+		end
+	end
+
+	for _, bug in b.Bugs do
+		if bug.Kind == "Minion" and bug.Word == wanted and reachable(bug, wanted, now, rules) then
 			bug.State = "Squashed"
+			b.Squashed += 1
 			bumpCombo(b)
+			settle(b)
 			return true
 		end
 	end
 
 	b.Combo = 0
-	b.Mood -= b.Rules.MissedSquashPenalty
-	if b.Mood <= 0 then
-		b.Status = "Failed"
-	end
+	b.Mood -= rules.MissedSquashPenalty
+	settle(b)
 	return false
-end
-
-function BattleState.SubmitPrompt(b: Battle, text: string, now: number, judge: Judge): number
-	BattleState.Tick(b, now)
-	if b.Status ~= "Running" then
-		return 0
-	end
-
-	-- Blank input (a stray Enter) is ignored rather than judged as a failed prompt.
-	if string.match(text, "^%s*$") then
-		return 0
-	end
-
-	local rules = b.Rules
-	local prompt = b.Prompts[b.PromptIndex]
-	local accuracy = 0
-	if judge.IsPlausible(#text, now - b.PromptIssuedAt, rules.MaxCharsPerSecond) then
-		accuracy = judge.Accuracy(prompt, text, 0)
-	end
-
-	b.Deadline += judge.TimeAdjustment(accuracy, b.Progress + 1, {
-		CleanAccuracy = rules.CleanPromptAccuracy,
-		CleanBonus = rules.CleanBonus,
-		BonusPerPrompt = rules.BonusPerPrompt,
-		ErrorPenalty = rules.ErrorPenalty,
-	})
-
-	if accuracy < rules.MinPromptAccuracy then
-		b.Mood -= rules.BadPromptPenalty
-		b.Combo = 0
-	else
-		if accuracy >= rules.CleanPromptAccuracy then
-			bumpCombo(b)
-		end
-		b.Progress += 1
-		b.PromptIndex = b.PromptIndex % #b.Prompts + 1
-	end
-
-	b.PromptIssuedAt = now
-	b.AccuracySum += accuracy
-	b.PromptsJudged += 1
-
-	if b.Progress >= rules.ShipPromptsRequired then
-		b.Status = "Shipped"
-	elseif b.Mood <= 0 then
-		b.Status = "Failed"
-	end
-	return accuracy
 end
 
 function BattleState.Result(b: Battle): BattleResult
 	return {
 		Status = b.Status,
 		MoodRatio = math.max(b.Mood, 0) / MAX_MOOD,
-		Accuracy = b.AccuracySum / math.max(b.PromptsJudged, 1),
+		Accuracy = b.Squashed / math.max(#b.Bugs, 1),
 		MaxCombo = b.MaxCombo,
 	}
 end
 
 function BattleState.Snapshot(b: Battle): BattleSnapshot
 	local bugStates: { [number]: BugState } = {}
+	local resolved = 0
+	local bossHp = 0
 	for _, bug in b.Bugs do
 		bugStates[bug.Id] = bug.State
+		if bug.State ~= "Pending" then
+			resolved += 1
+		end
+		if bug.Kind == "Boss" then
+			bossHp = bug.Hp
+		end
 	end
 	return {
 		Mood = b.Mood,
 		Combo = b.Combo,
-		Progress = b.Progress,
-		PromptText = b.Prompts[b.PromptIndex],
+		Progress = resolved / math.max(#b.Bugs, 1),
 		BugStates = bugStates,
+		BossHp = bossHp,
 		Status = b.Status,
-		PromptsJudged = b.PromptsJudged,
-		DeadlineOffset = b.Deadline - b.StartTime,
 	}
 end
 
