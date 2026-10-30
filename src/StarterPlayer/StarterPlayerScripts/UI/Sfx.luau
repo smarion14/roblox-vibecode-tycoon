@@ -24,6 +24,8 @@ export type SoundName =
 	| "GradeB"
 	| "GradeC"
 	| "PartEarned"
+	| "CardOpen"
+	| "CardClose"
 
 type SoundDef = {
 	Ids: { number },
@@ -54,6 +56,9 @@ local SOUNDS: { [string]: SoundDef } = {
 	GradeB = { Ids = { 9126073026 }, Volume = 0.45, PitchMin = 0.85, PitchMax = 0.85, Voices = 1 },
 	GradeC = { Ids = { 9119071955 }, Volume = 0.4, PitchMin = 0.75, PitchMax = 0.75, Voices = 1 },
 	PartEarned = { Ids = { 15674975792 }, Volume = 0.4, PitchMin = 1.3, PitchMax = 1.4, Voices = 1 },
+	-- Result cards: a low whoosh as a card slams in, a short high one as it closes.
+	CardOpen = { Ids = { 15674975792 }, Volume = 0.5, PitchMin = 0.8, PitchMax = 0.85, Voices = 1 },
+	CardClose = { Ids = { 15674975792 }, Volume = 0.3, PitchMin = 1.5, PitchMax = 1.6, Voices = 1 },
 }
 
 local Sfx = {}

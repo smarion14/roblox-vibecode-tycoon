@@ -78,12 +78,18 @@ function StationCard.Close()
 	local current = gui
 	gui = nil
 	if current then
+		Sfx.Play("CardClose")
 		current:Destroy()
 	end
 end
 
 function StationCard.Show(result: StationResult)
-	StationCard.Close()
+	-- Replacing an open card shouldn't play the close whoosh over the new card's entrance.
+	local previous = gui
+	gui = nil
+	if previous then
+		previous:Destroy()
+	end
 	skipping = false
 	local style = GRADE_STYLE[result.Grade] or GRADE_STYLE.C
 
@@ -114,6 +120,7 @@ function StationCard.Show(result: StationResult)
 	end)
 
 	screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+	Sfx.Play("CardOpen")
 
 	task.spawn(function()
 		pause(0.3)
@@ -127,6 +134,10 @@ function StationCard.Show(result: StationResult)
 			return skipping
 		end)
 		Juice.Pop(accuracy, 0.3)
+		if result.Accuracy >= 0.995 then
+			accuracy.TextColor3 = Theme.MOOD
+			Sfx.Play("PromptClean") -- a perfect 100% gets its own chime
+		end
 		pause(0.2)
 
 		local prompts = row(card, 2, "Prompts finished", Theme.TEXT)
@@ -139,6 +150,9 @@ function StationCard.Show(result: StationResult)
 		end)
 		if result.Completed >= result.Total then
 			prompts.TextColor3 = Theme.TYPED
+			Sfx.Play("ChipTap")
+		else
+			Sfx.Play("KeyWrong")
 		end
 		Juice.Pop(prompts, 0.3)
 		pause(0.3)
