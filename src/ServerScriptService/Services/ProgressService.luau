@@ -76,6 +76,40 @@ local function onCutsceneDone(player: Player, id: any)
 	end
 end
 
+-- Celebrates each Act 2 milestone once: flags it in the save, then sends its card.
+function ProgressService.CheckMilestones(player: Player)
+	local save = StartupDataModule.GetSnapshot(player)
+	if not save then
+		return
+	end
+	local hires = 0
+	for _ in save.Hires do
+		hires += 1
+	end
+	local state: Story.MilestoneState = {
+		Act = save.Act,
+		ActDeploys = save.ActDeploys,
+		Valuation = save.Valuation,
+		ActGoal = save.ActGoal,
+		Hires = hires,
+		Flags = save.StoryFlags,
+	}
+	local reached = Story.NewMilestones(GameConfig.ACT2.Milestones :: any, state, GameConfig.ACT2.ValuationStep)
+	if #reached == 0 then
+		return
+	end
+	StartupDataModule.Update(player, function(current)
+		for _, id in reached do
+			current.StoryFlags[`Milestone_{id}`] = true
+		end
+	end)
+	for _, milestone in GameConfig.ACT2.Milestones do
+		if table.find(reached, milestone.Id) then
+			beat(player, "Milestone", { Title = milestone.Title, Body = milestone.Body })
+		end
+	end
+end
+
 local function onDeployed(player: Player, _payout: number)
 	local save = StartupDataModule.GetSnapshot(player)
 	if not save then
@@ -84,7 +118,10 @@ local function onDeployed(player: Player, _payout: number)
 	if save.Act == 1 then
 		local index = math.clamp(save.DeploysShipped, 1, #StoryText.SIBLING_TEXTS)
 		beat(player, "SiblingText", StoryText.SIBLING_TEXTS[index])
-	elseif Story.ActGoalReached(save.Act, save.Valuation, save.ActGoal) and not save.StoryFlags.Act2Complete then
+	else
+		ProgressService.CheckMilestones(player)
+	end
+	if save.Act >= 2 and Story.ActGoalReached(save.Act, save.Valuation, save.ActGoal) and not save.StoryFlags.Act2Complete then
 		StartupDataModule.Update(player, function(current)
 			current.StoryFlags.Act2Complete = true
 		end)

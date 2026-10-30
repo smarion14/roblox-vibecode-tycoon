@@ -11,6 +11,7 @@ local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForC
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local EmployeeService = require(script.Parent:WaitForChild("EmployeeService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
+local ProgressService = require(script.Parent:WaitForChild("ProgressService"))
 
 local NO_OFFICE_MESSAGE = "Hire people once you have an office."
 
@@ -90,6 +91,7 @@ local function onPurchase(player: Player, itemId: any)
 	RemoteManager.FireClient(RemoteNames.Notice, player, `Bought: {def.Name}`)
 	if hire then
 		EmployeeService.Refresh(player)
+		ProgressService.CheckMilestones(player)
 	end
 	openShop(player)
 end

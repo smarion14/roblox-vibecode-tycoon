@@ -3,7 +3,7 @@ local Cutscenes = require("../src/ReplicatedStorage/Shared/Cutscenes")
 local StoryText = require("../src/ReplicatedStorage/Shared/StoryText")
 
 local COPY = {
-	RentGoal = 1500,
+	RentGoal = 750,
 	ActGoal = 3.1,
 	Act1Intro = StoryText.ACT1_INTRO,
 	Act1End = StoryText.ACT1_END,

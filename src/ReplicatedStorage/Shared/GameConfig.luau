@@ -157,7 +157,25 @@ GameConfig.DAY_CYCLE = {
 }
 
 -- Act 2 ends when valuation reaches its starting value plus this step.
-GameConfig.ACT2 = { ValuationStep = 1.5 }
+export type Milestone = {
+	Id: string,
+	Kind: "Hires" | "ActDeploys" | "GoalProgress",
+	At: number, -- hires owned, deploys shipped this act, or the fraction of the valuation goal reached
+	Title: string,
+	Body: string,
+}
+
+-- Act 2 is long on purpose, so it's broken into milestones the player can see coming. The ActDeploys ones line
+-- up with when the act's clients unlock.
+GameConfig.ACT2 = {
+	ValuationStep = 1.5,
+	Milestones = {
+		{ Id = "FirstHire", Kind = "Hires", At = 1, Title = "FIRST HIRE!", Body = "Somebody else can write the bugs now." },
+		{ Id = "PixelForge", Kind = "ActDeploys", At = 2, Title = "NEW CLIENT", Body = "PixelForge Indie Studio wants a game." },
+		{ Id = "BrewCrew", Kind = "ActDeploys", At = 4, Title = "NEW CLIENT", Body = "BrewCrew Coffee Rewards wants an app." },
+		{ Id = "Halfway", Kind = "GoalProgress", At = 0.5, Title = "HALFWAY THERE", Body = "Investors are starting to call back." },
+	} :: { Milestone },
+}
 
 -- Deploy battle difficulty per act, applied on top of BATTLE_RULES.
 GameConfig.ACT_BATTLE = {
@@ -176,7 +194,7 @@ GameConfig.ANIMATIONS = {
 } :: { [string]: number }
 
 GameConfig.STARTING_VALUATION = 1.0
-GameConfig.RENT_GOAL = 1500
+GameConfig.RENT_GOAL = 750
 GameConfig.MAX_PLAYERS = 6
 GameConfig.MAX_REMOTE_STRING = 200
 

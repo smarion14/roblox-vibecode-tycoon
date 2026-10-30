@@ -11,6 +11,17 @@ export type StoryState = {
 	Flags: { [string]: boolean },
 }
 
+export type MilestoneState = {
+	Act: number,
+	ActDeploys: number,
+	Valuation: number,
+	ActGoal: number,
+	Hires: number,
+	Flags: { [string]: boolean },
+}
+
+export type MilestoneDef = { Id: string, Kind: string, At: number }
+
 local NAME_MIN = 3
 local NAME_MAX = 24
 
@@ -43,6 +54,23 @@ end
 
 function Story.ActGoalReached(act: number, valuation: number, goal: number): boolean
 	return act >= 2 and valuation >= goal
+end
+
+-- Act 2 milestones reached but not yet celebrated (flag "Milestone_<Id>" marks one as shown), in list order.
+function Story.NewMilestones(defs: { MilestoneDef }, state: MilestoneState, valuationStep: number): { string }
+	local reached: { string } = {}
+	if state.Act < 2 then
+		return reached
+	end
+	local progress = (state.Valuation - (state.ActGoal - valuationStep)) / valuationStep
+	for _, def in defs do
+		local value = if def.Kind == "Hires" then state.Hires elseif def.Kind == "ActDeploys" then state.ActDeploys else progress
+		-- A hair of slack so a goal fraction that lands exactly on the line counts.
+		if value >= def.At - 1e-9 and not state.Flags[`Milestone_{def.Id}`] then
+			table.insert(reached, def.Id)
+		end
+	end
+	return reached
 end
 
 -- Trims and collapses spaces, then checks length and that there's at least one letter or number.

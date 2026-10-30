@@ -23,6 +23,9 @@ local toastText: TextLabel
 local card: Frame
 local cardBody: Frame
 local toastToken = 0
+local bannerLayer: Frame
+local milestoneBody: TextLabel
+local milestoneQueue = 0
 
 local function showText(message: any)
 	if type(message) ~= "string" then
@@ -72,11 +75,34 @@ local function showCard(lines: { string }, ending: string)
 	end
 end
 
+-- A milestone gets a banner slam and its line floating up underneath. Several at once play one after another.
+local function showMilestone(payload: any)
+	if type(payload) ~= "table" or type(payload.Title) ~= "string" or type(payload.Body) ~= "string" then
+		return
+	end
+	milestoneQueue += 1
+	task.delay((milestoneQueue - 1) * 2.6, function()
+		milestoneQueue -= 1
+		Juice.Banner(bannerLayer, payload.Title, Theme.MOOD, 40)
+		Sfx.Play("Banner")
+		milestoneBody.Text = payload.Body
+		milestoneBody.Visible = true
+		Juice.PopIn(milestoneBody)
+		task.delay(2.4, function()
+			if milestoneBody.Text == payload.Body then
+				milestoneBody.Visible = false
+			end
+		end)
+	end)
+end
+
 local function onBeat(kind: any, payload: any)
 	if kind == "Cutscene" then
 		task.spawn(CutsceneController.Play, payload)
 	elseif kind == "SiblingText" then
 		showText(payload)
+	elseif kind == "Milestone" then
+		showMilestone(payload)
 	elseif kind == "Act2Complete" then
 		showCard({ "You hit your valuation goal." }, "Act 2 complete. To be continued.")
 	end
@@ -84,6 +110,19 @@ end
 
 function StoryController.Init()
 	gui = Theme.Screen("Story", 8)
+
+	bannerLayer = Instance.new("Frame")
+	bannerLayer.Size = UDim2.fromScale(1, 1)
+	bannerLayer.BackgroundTransparency = 1
+	bannerLayer.Parent = gui
+	milestoneBody = Theme.Text(bannerLayer, "", 20)
+	milestoneBody.AutomaticSize = Enum.AutomaticSize.None
+	milestoneBody.Size = UDim2.new(1, 0, 0, 28)
+	milestoneBody.AnchorPoint = Vector2.new(0.5, 0.5)
+	milestoneBody.Position = UDim2.fromScale(0.5, 0.5)
+	milestoneBody.TextXAlignment = Enum.TextXAlignment.Center
+	milestoneBody.TextStrokeTransparency = 0.4
+	milestoneBody.Visible = false
 
 	toast = Theme.Panel(gui, UDim2.fromOffset(300, 0), UDim2.new(1, -12, 0, 12))
 	toast.AnchorPoint = Vector2.new(1, 0)
