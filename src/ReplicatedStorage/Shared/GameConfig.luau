@@ -167,12 +167,12 @@ GameConfig.ACT_BATTLE = {
 -- Published cutscene animation ids (see docs/animations-publish-checklist.md). 0 = not published yet, and
 -- Actors falls back to a built-in animation or none.
 GameConfig.ANIMATIONS = {
-	LaptopClose = 0,
-	HandOverCash = 0,
-	CountCash = 0,
-	Talk = 0,
-	SitCouch = 0,
-	DeskType = 0,
+	LaptopClose = 108241364195484,
+	HandOverCash = 123450171428287,
+	CountCash = 106883020920845,
+	Talk = 108929071791744,
+	SitCouch = 75760978448748,
+	DeskType = 84458442587066 ,
 } :: { [string]: number }
 
 GameConfig.STARTING_VALUATION = 1.0

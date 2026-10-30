@@ -132,16 +132,14 @@ local function hideModel(scene: Scene, model: Instance?)
 	end)
 end
 
+-- Freezes the (hidden) character in place for the scene. Anchoring the root locally works because the client owns
+-- its character's physics, and it never waits on PlayerModule, which this place may not have.
 local function setControls(enabled: boolean)
-	pcall(function()
-		local module = (require :: any)(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
-		local controls = module:GetControls()
-		if enabled then
-			controls:Enable()
-		else
-			controls:Disable()
-		end
-	end)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		root.Anchored = not enabled
+	end
 end
 
 local function hideOtherGuis(scene: Scene)
