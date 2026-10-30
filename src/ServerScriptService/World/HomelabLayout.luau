@@ -208,7 +208,7 @@ local function buildDecor(unit: Instance, origin: CFrame, half: number)
 end
 
 -- Cutscene markers for Act1Intro and Act1End (names match Cutscenes.HOMELAB_MARKERS).
-local function buildMarkers(contents: Instance, origin: CFrame)
+local function buildMarkers(contents: Instance, origin: CFrame, half: number)
 	local function at(x: number, y: number, z: number): Vector3
 		return (origin * CFrame.new(x, y, z)).Position
 	end
@@ -220,14 +220,19 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	look("CamCouch", at(-8, 5, 3), at(-8, 3, 12))
 	look("CamShoulder", at(-6.5, 7, 17), at(-8, 2.5, 6.5))
 	look("CamFace", at(-8, 4.5, 7), at(-8, 4, 11.3))
-	look("CamDoor", at(1.5, 5, 20), at(1.5, 3.5, 12))
+	-- The brother comes in and leaves through the open front (z = half); CamDoor watches from the side so it frames
+	-- both the handover at z = 12 and his walk out to the door.
+	local doorZ = half - 2
+	local handoverZ = 12
+	local midZ = (handoverZ + doorZ) / 2
+	look("CamDoor", at(-12, 6, midZ), at(3.5, 3, midZ - 1))
 	-- Actors (floor level, except the couch seat at cushion height).
 	look("CouchSeat", at(-8, 2.3, 11.3), at(-8, 2.3, 0))
-	look("BrotherEnter", at(-14, 0, 18), at(-14, 0, 0))
+	look("BrotherEnter", at(-14, 0, half - 4), at(-14, 0, 0))
 	look("BrotherBehindCouch", at(-8, 0, 15.5), at(-8, 0, 0))
-	look("HandoverPlayer", at(0, 0, 12), at(3, 0, 12))
-	look("HandoverBrother", at(3, 0, 12), at(0, 0, 12))
-	look("BrotherDoor", at(6, 0, 20), at(0, 0, 12))
+	look("HandoverPlayer", at(0, 0, handoverZ), at(3, 0, handoverZ))
+	look("HandoverBrother", at(3, 0, handoverZ), at(0, 0, handoverZ))
+	look("BrotherDoor", at(6, 0, doorZ), at(0, 0, handoverZ))
 end
 
 function HomelabLayout.Build(contents: Instance, origin: CFrame, half: number)
@@ -259,7 +264,7 @@ function HomelabLayout.Build(contents: Instance, origin: CFrame, half: number)
 		interactable(siblingRoot, "Sibling", "Talk", "Your Sibling")
 	end
 
-	buildMarkers(contents, origin)
+	buildMarkers(contents, origin, half)
 end
 
 return HomelabLayout

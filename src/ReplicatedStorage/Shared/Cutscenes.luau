@@ -103,7 +103,7 @@ local function act1End(copy: Copy): { Step }
 		{ Kind = "Animate", Actor = "Brother", Animation = "Talk" },
 		line(copy.Act1End[1], "Brother", "Push"),
 		line(copy.Act1End[2], "Brother", "Shout"),
-		{ Kind = "Actor", Actor = "Brother", Marker = "BrotherDoor", Walk = true, Seconds = 1.6 },
+		{ Kind = "Actor", Actor = "Brother", Marker = "BrotherDoor", Walk = true, Seconds = 2.2 },
 		{ Kind = "Animate", Actor = "Brother", Animation = "Talk" },
 		line(copy.Act1End[3], "Brother", "Push"),
 		{ Kind = "Title", Text = copy.Titles.Act1Done },

@@ -65,7 +65,50 @@ local function validLayout(placed: { Decor.Placement }): { Decor.Placement }
 	return kept
 end
 
--- Rebuilds unit.Contents.Decor from the save. Each model carries its DecorIndex for decorate mode.
+local function cellCFrame(origin: CFrame, entry: Decor.Placement): CFrame?
+	local def = GameConfig.DECOR[entry.Id]
+	if not def then
+		return nil
+	end
+	local w, d = Decor.Footprint(def, entry.R)
+	return DecorModels.CellCFrame(origin, entry.X, entry.Z, w, d, entry.R)
+end
+
+-- Each model carries its save index as DecorIndex, for decorate mode.
+local function addModel(folder: Folder, origin: CFrame, entry: Decor.Placement, index: number)
+	local at = cellCFrame(origin, entry)
+	if not at then
+		return
+	end
+	local model = DecorModels.Build(entry.Id)
+	model:PivotTo(at)
+	model:SetAttribute("DecorIndex", index)
+	model.Parent = folder
+end
+
+-- The built Decor folder and the unit origin, when both exist.
+local function builtDecor(player: Player): (Folder?, CFrame?)
+	local unit = PlotService.GetUnitModel(player)
+	local contents = if unit then unit:FindFirstChild("Contents") else nil
+	local folder = if contents then contents:FindFirstChild("Decor") else nil
+	local origin = if unit then unit:GetAttribute("OriginCFrame") else nil
+	if folder and folder:IsA("Folder") and typeof(origin) == "CFrame" then
+		return folder, origin
+	end
+	return nil, nil
+end
+
+local function modelAt(folder: Folder, index: number): Model?
+	for _, child in folder:GetChildren() do
+		if child:IsA("Model") and child:GetAttribute("DecorIndex") == index then
+			return child
+		end
+	end
+	return nil
+end
+
+-- Rebuilds unit.Contents.Decor from the save. Only on load and office builds (and as a fallback if the folder is
+-- missing): changes touch one model each, so spamming free moves can't churn hundreds of replicated parts.
 local function buildDecor(player: Player)
 	local unit = PlotService.GetUnitModel(player)
 	local save = StartupDataModule.GetSnapshot(player)
@@ -84,14 +127,7 @@ local function buildDecor(player: Player)
 	local folder = Instance.new("Folder")
 	folder.Name = "Decor"
 	for index, entry in save.Decor do
-		local def = GameConfig.DECOR[entry.Id]
-		if def then
-			local model = DecorModels.Build(entry.Id)
-			local w, d = Decor.Footprint(def, entry.R)
-			model:PivotTo(DecorModels.CellCFrame(origin, entry.X, entry.Z, w, d, entry.R))
-			model:SetAttribute("DecorIndex", index)
-			model.Parent = folder
-		end
+		addModel(folder, origin, entry, index)
 	end
 	folder.Parent = contents
 end
@@ -139,7 +175,12 @@ local function onPlace(player: Player, id: any, x: any, z: any, r: any)
 		current.Cash -= def.Price
 		table.insert(current.Decor, item)
 	end)
-	buildDecor(player)
+	local folder, origin = builtDecor(player)
+	if folder and origin then
+		addModel(folder, origin, item, #save.Decor + 1)
+	else
+		buildDecor(player)
+	end
 	reply(player, true, nil)
 end
 
@@ -167,7 +208,14 @@ local function onMove(player: Player, index: any, x: any, z: any, r: any)
 	StartupDataModule.Update(player, function(current)
 		current.Decor[index] = item
 	end)
-	buildDecor(player)
+	local folder, origin = builtDecor(player)
+	local model = if folder then modelAt(folder, index) else nil
+	local at = if origin then cellCFrame(origin, item) else nil
+	if model and at then
+		model:PivotTo(at)
+	else
+		buildDecor(player)
+	end
 	reply(player, true, nil)
 end
 
@@ -192,7 +240,20 @@ local function onSell(player: Player, index: any)
 		table.remove(current.Decor, index)
 		current.Cash += refund
 	end)
-	buildDecor(player)
+	local folder = builtDecor(player)
+	local model = if folder then modelAt(folder, index) else nil
+	if folder and model then
+		model:Destroy()
+		-- Later entries shifted down one in the save; keep their models' indices in step.
+		for _, child in folder:GetChildren() do
+			local childIndex = child:GetAttribute("DecorIndex")
+			if type(childIndex) == "number" and childIndex > index then
+				child:SetAttribute("DecorIndex", childIndex - 1)
+			end
+		end
+	else
+		buildDecor(player)
+	end
 	reply(player, true, nil)
 end
 

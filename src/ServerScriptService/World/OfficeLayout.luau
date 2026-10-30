@@ -270,7 +270,9 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	end
 	look("CamOutside", at(0, 8, 40), at(0, 4, 14))
 	look("CamInside", at(0, 7, 30), at(0, 3, -16))
-	look("CamDesks", at(0, 9, -6), at(0, 3, -20))
+	-- Centred on the desk row (x -28 to 9) and pulled back so all four desks fit in frame.
+	local deskRowX = (STATION_X[1] + STATION_X[#STATION_X]) / 2
+	look("CamDesks", at(deskRowX, 11, 0), at(deskRowX, 3, DESK_Z - 2))
 	look("CamSign", at(-24, 5, 22), at(-24, 4.5, 28))
 	look("PlayerDoor", at(0, 0, 31), at(0, 0, 0))
 	look("PlayerCenter", at(0, 0, 6), at(0, 0, -10))
