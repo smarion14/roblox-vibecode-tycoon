@@ -50,6 +50,7 @@ local catalog: SaveSchema.SaveCatalog = {
 		end
 		return ids
 	end)(),
+	DecorIds = sortedKeys(GameConfig.DECOR),
 	StartingValuation = GameConfig.STARTING_VALUATION,
 }
 

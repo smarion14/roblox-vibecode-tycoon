@@ -6,6 +6,8 @@
 type GradeCounts = { S: number, A: number, B: number, C: number }
 type Inventory = { [string]: GradeCounts }
 
+export type Placement = { Id: string, X: number, Z: number, R: number }
+
 export type PlayerSave = {
 	Version: number,
 	Cash: number,
@@ -18,6 +20,7 @@ export type PlayerSave = {
 	Gear: { [string]: boolean },
 	Hires: { [string]: boolean },
 	StoryFlags: { [string]: boolean },
+	Decor: { Placement },
 	ActiveJobId: string?,
 	StartupName: string?,
 	ActDeploys: number,
@@ -31,6 +34,7 @@ export type SaveCatalog = {
 	GearIds: { string },
 	HireIds: { string },
 	ClientIds: { string },
+	DecorIds: { string },
 	StartingValuation: number,
 }
 
@@ -38,6 +42,10 @@ export type LoadDecision = "Fail" | "UseDefault" | "UseRaw"
 
 local MAX_ACT = 3
 local MAX_NAME_CHARS = 24
+-- shortcut: mirrors GameConfig.DECOR_MAX_ITEMS and the zone bound (pure modules cannot require)
+local MAX_DECOR_ITEMS = 200
+local MAX_DECOR_CELL = 63
+local DECOR_ROTATIONS = { [0] = true, [90] = true, [180] = true, [270] = true }
 local GRADES = { "S", "A", "B", "C" }
 
 local SaveSchema = {}
@@ -68,6 +76,32 @@ local function flagSet(raw: any, allowed: { string }): { [string]: boolean }
 	return result
 end
 
+-- Structural only; zone fit and overlaps are checked by DecorService on load.
+local function decorList(raw: any, ids: { string }): { Placement }
+	local result: { Placement } = {}
+	if type(raw) ~= "table" then
+		return result
+	end
+	for _, entry in raw do
+		if #result >= MAX_DECOR_ITEMS then
+			break
+		end
+		if type(entry) ~= "table" or type(entry.Id) ~= "string" or not table.find(ids, entry.Id) then
+			continue
+		end
+		local x, z, r = entry.X, entry.Z, entry.R
+		if
+			isFinite(x) and isFinite(z)
+			and x == math.floor(x) and z == math.floor(z)
+			and x >= 0 and x <= MAX_DECOR_CELL and z >= 0 and z <= MAX_DECOR_CELL
+			and DECOR_ROTATIONS[r]
+		then
+			table.insert(result, { Id = entry.Id, X = x, Z = z, R = r })
+		end
+	end
+	return result
+end
+
 function SaveSchema.Default(catalog: SaveCatalog): PlayerSave
 	local inventory: Inventory = {}
 	for _, component in catalog.Components do
@@ -86,6 +120,7 @@ function SaveSchema.Default(catalog: SaveCatalog): PlayerSave
 		Gear = {},
 		Hires = {},
 		StoryFlags = {},
+		Decor = {},
 		ActiveJobId = nil,
 		StartupName = nil,
 		ActDeploys = 0,
@@ -135,6 +170,8 @@ function SaveSchema.Sanitize(raw: any, catalog: SaveCatalog): PlayerSave
 			end
 		end
 	end
+
+	save.Decor = decorList(raw.Decor, catalog.DecorIds)
 
 	if type(raw.ActiveJobId) == "string" and table.find(catalog.ClientIds, raw.ActiveJobId) then
 		save.ActiveJobId = raw.ActiveJobId

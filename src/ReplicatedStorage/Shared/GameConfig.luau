@@ -23,6 +23,13 @@ export type HireDef = {
 	Price: number,
 }
 
+export type DecorDef = {
+	Name: string,
+	Price: number,
+	Size: { X: number, Z: number },
+	Perk: { Speed: number?, GradeAChance: number? }?,
+}
+
 local GameConfig = {}
 
 GameConfig.COMPONENTS = { "FrontendUnits", "BackendEndpoints", "DatabaseTables", "PromptTokens" }
@@ -179,6 +186,29 @@ GameConfig.ACT2 = {
 
 -- Hired employees build parts on their own; seconds per part before perks, and the grades they produce.
 GameConfig.WORKFORCE = { BuildSeconds = 25, Grade = "B", BonusGrade = "A" }
+
+-- Decorate zone: cells of CellSize studs; Offset is the zone's minimum corner in unit-local studs.
+GameConfig.DECOR_ZONE = { CellsX = 14, CellsZ = 12, CellSize = 2, OffsetX = -14, OffsetZ = 4 }
+GameConfig.DECOR_MAX_ITEMS = 200
+GameConfig.DECOR_SELL_RATE = 0.5
+
+-- Perks (one of each) and pure decor, all bought with cash.
+GameConfig.DECOR = {
+	CoffeeMachine = { Name = "Coffee Machine", Price = 400, Size = { X = 1, Z = 1 }, Perk = { Speed = 0.2 } },
+	LoungeCouch = { Name = "Lounge Couch", Price = 650, Size = { X = 3, Z = 1 }, Perk = { GradeAChance = 0.15 } },
+	ArcadeCabinet = { Name = "Arcade Cabinet", Price = 900, Size = { X = 1, Z = 1 }, Perk = { Speed = 0.1 } },
+	Plant = { Name = "Plant", Price = 60, Size = { X = 1, Z = 1 } },
+	Rug = { Name = "Rug", Price = 90, Size = { X = 3, Z = 2 } },
+	FloorLamp = { Name = "Floor Lamp", Price = 120, Size = { X = 1, Z = 1 } },
+	NeonSign = { Name = "Neon Sign", Price = 150, Size = { X = 2, Z = 1 } },
+	PosterFrame = { Name = "Poster Frame", Price = 80, Size = { X = 1, Z = 1 } },
+	Beanbag = { Name = "Beanbag", Price = 110, Size = { X = 1, Z = 1 } },
+	Bookshelf = { Name = "Bookshelf", Price = 200, Size = { X = 2, Z = 1 } },
+	StringLights = { Name = "String Lights", Price = 180, Size = { X = 2, Z = 1 } },
+	FairyPlant = { Name = "Fairy Plant", Price = 140, Size = { X = 1, Z = 1 } },
+	CatBed = { Name = "Cat Bed", Price = 250, Size = { X = 1, Z = 1 } },
+	SideTable = { Name = "Side Table", Price = 90, Size = { X = 1, Z = 1 } },
+} :: { [string]: DecorDef }
 
 -- Deploy battle difficulty per act, applied on top of BATTLE_RULES.
 GameConfig.ACT_BATTLE = {

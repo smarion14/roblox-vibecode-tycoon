@@ -6,6 +6,7 @@ local CATALOG: SaveSchema.SaveCatalog = {
 	GearIds = { "MechanicalKeyboard", "SecondMonitor", "ModelV2" },
 	HireIds = { "FrontendUnits", "BackendEndpoints", "DatabaseTables", "PromptTokens" },
 	ClientIds = { "PawsAndSuds", "RollingTaco", "CornerBakery" },
+	DecorIds = { "Plant", "Rug" },
 	StartingValuation = 1.0,
 }
 
@@ -104,6 +105,31 @@ tests["act 2 fields sanitized"] = function()
 	assert(SaveSchema.Sanitize({ ActDeploys = -3 }, CATALOG).ActDeploys == 0)
 	assert(SaveSchema.Sanitize({ ActGoal = 0 / 0 }, CATALOG).ActGoal == 0)
 	assert(SaveSchema.Sanitize({ ActGoal = 3.1 }, CATALOG).ActGoal == 3.1)
+end
+
+tests["decor survives a round trip and junk is dropped"] = function()
+	assert(#SaveSchema.Default(CATALOG).Decor == 0)
+	local raw = {
+		Decor = {
+			{ Id = "Plant", X = 3, Z = 4, R = 90 },
+			{ Id = "Nope", X = 0, Z = 0, R = 0 },
+			{ Id = "Rug", X = 1.5, Z = 0, R = 0 },
+			{ Id = "Rug", X = 0, Z = 64, R = 0 },
+			{ Id = "Rug", X = 0, Z = 0, R = 45 },
+			"junk",
+			{ Id = "Rug", X = 63, Z = 0, R = 270 },
+		},
+	}
+	local save = SaveSchema.Sanitize(raw, CATALOG)
+	assert(#save.Decor == 2)
+	assert(save.Decor[1].Id == "Plant" and save.Decor[1].X == 3 and save.Decor[1].Z == 4 and save.Decor[1].R == 90)
+	assert(save.Decor[2].Id == "Rug" and save.Decor[2].X == 63)
+	local many = {}
+	for i = 1, 250 do
+		table.insert(many, { Id = "Plant", X = i % 14, Z = 0, R = 0 })
+	end
+	assert(#SaveSchema.Sanitize({ Decor = many }, CATALOG).Decor == 200)
+	assert(#SaveSchema.Sanitize({ Decor = 5 }, CATALOG).Decor == 0)
 end
 
 return tests
