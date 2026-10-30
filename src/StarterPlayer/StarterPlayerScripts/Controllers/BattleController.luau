@@ -1,15 +1,17 @@
 --!strict
--- Deploy battle screen. Bugs only: two waves, then a boss bug whose phrase is typed word by word.
--- Left: the client on a live call. Centre: wave, ship progress, combo, the bug lane and YOUR CODE line.
--- Server BattleUpdate snapshots are the truth; bug motion is animated locally from the server start time.
+-- Deploy battle screen: a Galaga-style shooter. Your app (the ship) slides along the bottom and fires on its own;
+-- bugs fly in from the top, hold formation, then dive at YOUR CODE. Station part grades set the loadout.
+-- Left: the client on a live call. Centre: wave, ship progress, loadout, combo and the playfield.
+-- Bug paths come from BattleState.BugPosition on the shared server clock; BattleUpdate snapshots are the truth.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local GameConfig = require(Shared:WaitForChild("GameConfig"))
+local BattleState = require(Shared:WaitForChild("BattleState"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
@@ -18,32 +20,31 @@ local Music = require(UI:WaitForChild("Music"))
 local ResultsScreen = require(UI:WaitForChild("ResultsScreen"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
-local TypingInput = require(UI:WaitForChild("TypingInput"))
 
 type BugView = {
-	Id: number,
-	Kind: string,
-	Wave: number,
-	Word: string,
-	Words: { string },
-	Hp: number,
-	Side: number,
-	SpawnOffset: number,
-	ReachOffset: number,
-	LastHitOffset: number,
+	Bug: BattleState.Bug, -- flight plan with times relative to the battle start
+	Label: TextLabel,
+	HpFill: Frame?,
+	MaxHp: number,
 	State: string,
-	Button: TextButton,
-	Stroke: UIStroke,
-	Hint: TextLabel,
 	Shown: boolean,
+	HiddenAt: number?, -- set when a local bullet hit it; the server confirms or it reappears
 }
 
+type Bullet = { Frame: Frame, X: number, Y: number }
+
 local RESULTS_DELAY = 1.1 -- let the SHIPPED banner land before the results card
-local BUG_LANES = 5
-local DANGER_TRAVEL = 0.75 -- past this share of the path a bug starts pulsing as a warning
+local SHIP_Y = 0.9
+local SHIP_KEY_SPEED = 1.1 -- field widths per second with keys or a stick
+local SHIP_DRAG_SPEED = 2.6 -- how fast the ship chases a drag or mouse target
+local BULLET_SPEED = 1.6 -- field heights per second
+local HOMING_TURN = 0.9 -- field widths per second a homing bullet can slide sideways
+local MINION_HIT_PX = 20
+local BOSS_HIT_PX = Vector2.new(70, 34)
+local PREDICTION_TIMEOUT = 0.8 -- a hit the server never confirms reappears after this long
 local PRAISE_CHANCE = 0.45
-local INSTRUCTION_KEYBOARD = "Bugs crawl toward YOUR CODE. Type a bug's name + SPACE to squash it."
-local INSTRUCTION_TOUCH = "Bugs crawl toward YOUR CODE. Tap a bug to squash it."
+local INSTRUCTION_KEYBOARD = "Move with ← → or A / D (or drag). Your app fires on its own. Don't let bugs reach YOUR CODE."
+local INSTRUCTION_TOUCH = "Drag to move. Your app fires on its own. Don't let bugs reach YOUR CODE."
 
 local PRAISE = { "clean!", "squashed!", "nice!", "gone!", "patched!", "fixed!" }
 local COMBO_CALLOUTS: { [number]: string } = {
@@ -75,7 +76,7 @@ local CLIENT_LINES: { [string]: { string } } = {
 local HAPPY_FACES = { "😍", "🤩", "😆", "🥳" }
 local MAX_BUBBLES = 3
 local BUBBLE_SECONDS = 3.5
-local SQUASH_LINE_COOLDOWN = 0.7 -- squashes can land every half second; don't bury the sidebar in bubbles
+local SQUASH_LINE_COOLDOWN = 0.7 -- kills can land every half second; don't bury the sidebar in bubbles
 
 local REACTIONS = {
 	happy = { "Oh nice, that loads fast.", "This is exactly what I pictured.", "My team is going to love this." },
@@ -100,20 +101,27 @@ local comboLabel: TextLabel
 local waveLabel: TextLabel
 local progressFill: Frame
 local instructionLabel: TextLabel
-local inputHolder: Frame
-local bugLayer: Frame
+local loadoutLabel: TextLabel
+local field: Frame
+local ship: TextLabel
+local shieldLabel: TextLabel
 
-local catcher: TypingInput.WordCatcher? = nil
-local mode: TypingInput.Mode = "Keyboard"
 local bugs: { BugView } = {}
+local bullets: { Bullet } = {}
 local serverStart = 0
 local waveCount = 2
 local announcedWave = 0
 local lastMoodBand = ""
 local lastCombo = 0
-local partialWord = ""
-local squashedOnce = false
+local lastShield = 0
+local rollbackShown = false
+local shipX = 0.5
+local dragTarget: number? = nil
+local fireInterval = 0.32
+local homing = false
+local nextShotAt = 0
 local renderConnection: RBXScriptConnection? = nil
+local inputConnections: { RBXScriptConnection } = {}
 
 local function serverElapsed(): number
 	return Workspace:GetServerTimeNow() - serverStart
@@ -235,73 +243,33 @@ local function clearBattle()
 		renderConnection:Disconnect()
 		renderConnection = nil
 	end
-	if catcher then
-		catcher:Destroy()
-		catcher = nil
+	for _, connection in inputConnections do
+		connection:Disconnect()
 	end
+	table.clear(inputConnections)
 	for _, bug in bugs do
-		bug.Button:Destroy()
+		bug.Label:Destroy()
 	end
 	table.clear(bugs)
-end
-
-local function bossNextWord(bug: BugView): string?
-	return bug.Words[#bug.Words - bug.Hp + 1]
-end
-
--- The boss shows its phrase with broken words green, the next word white and the rest red.
-local function bossText(bug: BugView): string
-	local parts: { string } = {}
-	local done = #bug.Words - bug.Hp
-	for index, word in bug.Words do
-		if index <= done then
-			table.insert(parts, `<font color="#{Theme.TYPED:ToHex()}"><s>{word}</s></font>`)
-		elseif index == done + 1 then
-			table.insert(parts, `<u><font color="#ffffff">{word}</font></u>`)
-		else
-			table.insert(parts, word)
-		end
+	for _, bullet in bullets do
+		bullet.Frame:Destroy()
 	end
-	return `👾 {table.concat(parts, " ")}  {string.rep("♥", bug.Hp)}`
-end
-
--- Mirrors the server's rule: a word can't be typed faster than its target appeared (or was last hit).
-local function canHit(bug: BugView, word: string, elapsed: number): boolean
-	local earliest = bug.LastHitOffset + #word / GameConfig.BATTLE_RULES.MaxCharsPerSecond
-	return bug.State == "Pending" and elapsed >= earliest
-end
-
--- Only sends a squash when it matches a visible target, so typos don't cost the player anything.
-local function trySquashWord(word: string): boolean
-	local elapsed = serverElapsed()
-	for _, bug in bugs do
-		if bug.Kind == "Boss" and bossNextWord(bug) == word and canHit(bug, word, elapsed) then
-			RemoteManager.FireServer(RemoteNames.BattleSquash, word)
-			return true
-		end
-	end
-	for _, bug in bugs do
-		if bug.Kind == "Minion" and bug.Word == word and canHit(bug, word, elapsed) then
-			RemoteManager.FireServer(RemoteNames.BattleSquash, word)
-			return true
-		end
-	end
-	return false
+	table.clear(bullets)
+	dragTarget = nil
 end
 
 local function announceWave(elapsed: number)
-	for _, bug in bugs do
-		if bug.Wave > announcedWave and elapsed >= bug.SpawnOffset - 0.8 then
-			announcedWave = bug.Wave
-			if bug.Wave > waveCount then
+	for _, view in bugs do
+		if view.Bug.Wave > announcedWave and elapsed >= view.Bug.SpawnAt - 0.8 then
+			announcedWave = view.Bug.Wave
+			Sfx.Play("Banner")
+			if view.Bug.Wave > waveCount then
 				waveLabel.Text = "BOSS WAVE"
-				Sfx.Play("Banner")
 				Music.Play("Boss", 1.5)
 				Juice.Banner(root, "⚠ BOSS BUG INCOMING ⚠", Theme.BUG)
 			else
-				waveLabel.Text = `WAVE {bug.Wave} / {waveCount}`
-				Sfx.Play("Banner")
-				Juice.Banner(root, `WAVE {bug.Wave}`, Theme.MOOD)
+				waveLabel.Text = `WAVE {view.Bug.Wave} / {waveCount}`
+				Juice.Banner(root, `WAVE {view.Bug.Wave}`, Theme.MOOD)
 			end
 			Juice.Pop(waveLabel, 0.4)
 			return
@@ -309,127 +277,218 @@ local function announceWave(elapsed: number)
 	end
 end
 
-local function renderBugs()
+local function fieldPoint(x: number, y: number): Vector2
+	return Vector2.new(x * field.AbsoluteSize.X, y * field.AbsoluteSize.Y)
+end
+
+local function liveTargets(elapsed: number): { BugView }
+	local list: { BugView } = {}
+	for _, view in bugs do
+		if view.State == "Pending" and not view.HiddenAt and elapsed >= view.Bug.SpawnAt + 0.3 then
+			table.insert(list, view)
+		end
+	end
+	return list
+end
+
+local function fire()
+	local frame = Instance.new("Frame")
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.Size = UDim2.fromOffset(4, 16)
+	frame.BackgroundColor3 = if homing then Theme.MOOD else Theme.TYPED
+	frame.BorderSizePixel = 0
+	frame.ZIndex = 3
+	frame.Parent = field
+	table.insert(bullets, { Frame = frame, X = shipX, Y = SHIP_Y - 0.05 })
+	Sfx.Play("Shot")
+	Juice.Pop(ship, 0.08)
+end
+
+local function onBulletHit(view: BugView)
+	if view.Bug.Kind == "Boss" then
+		Juice.Shake(view.Label, nil)
+		Sfx.Play("Splat", 1.5)
+	else
+		-- Hide at once for snappy feel; the splat and cheer land when the server confirms the kill.
+		view.HiddenAt = os.clock()
+		view.Label.Visible = false
+	end
+	RemoteManager.FireServer(RemoteNames.BattleSquash, view.Bug.Id)
+end
+
+local function step(deltaTime: number)
 	local elapsed = serverElapsed()
 	announceWave(elapsed)
 
-	for _, bug in bugs do
-		local visible = bug.State == "Pending" and elapsed >= bug.SpawnOffset
-		bug.Button.Visible = visible
-		if not visible then
-			continue
+	-- Ship: keys or stick slide it; a drag or mouse hold pulls it toward the pointer.
+	local axis = 0
+	if UserInputService:IsKeyDown(Enum.KeyCode.Left) or UserInputService:IsKeyDown(Enum.KeyCode.A) then
+		axis -= 1
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.Right) or UserInputService:IsKeyDown(Enum.KeyCode.D) then
+		axis += 1
+	end
+	if axis ~= 0 then
+		dragTarget = nil
+		shipX += axis * SHIP_KEY_SPEED * deltaTime
+	elseif dragTarget then
+		local target = dragTarget :: number
+		local move = math.clamp(target - shipX, -SHIP_DRAG_SPEED * deltaTime, SHIP_DRAG_SPEED * deltaTime)
+		shipX += move
+	end
+	shipX = math.clamp(shipX, 0.04, 0.96)
+	ship.Position = UDim2.fromScale(shipX, SHIP_Y)
+	ship.Rotation = axis * 8
+
+	-- Auto-fire at the loadout's rate.
+	if elapsed >= nextShotAt then
+		nextShotAt = elapsed + fireInterval
+		fire()
+	end
+
+	-- Bugs: fly their shared paths; divers glow red as they come down.
+	for _, view in bugs do
+		local bug = view.Bug
+		if view.HiddenAt and os.clock() - (view.HiddenAt :: number) > PREDICTION_TIMEOUT and view.State == "Pending" then
+			view.HiddenAt = nil -- the server didn't accept that hit: bring the bug back
 		end
-		if not bug.Shown then
-			bug.Shown = true
-			Juice.PopIn(bug.Button)
+		local visible = view.State == "Pending" and not view.HiddenAt and elapsed >= bug.SpawnAt
+		view.Label.Visible = visible
+		if visible then
+			if not view.Shown then
+				view.Shown = true
+				Juice.PopIn(view.Label)
+			end
+			local x, y = BattleState.BugPosition(bug, elapsed)
+			view.Label.Position = UDim2.fromScale(x, y)
+			local diving = elapsed >= bug.DiveAt
+			if bug.Kind == "Minion" then
+				view.Label.Rotation = if diving then math.sin(elapsed * 18) * 15 else math.sin(elapsed * 4 + bug.Id) * 6
+				view.Label.TextColor3 = if diving and math.sin(elapsed * 14) > 0 then Theme.BUG else Color3.new(1, 1, 1)
+			end
+		end
+	end
+
+	-- Bullets: fly up, optionally steer toward the nearest bug, and hit what they touch.
+	local targets = liveTargets(elapsed)
+	local index = 1
+	while index <= #bullets do
+		local bullet = bullets[index]
+		bullet.Y -= BULLET_SPEED * deltaTime
+		if homing and #targets > 0 then
+			local best, bestDistance = nil, math.huge
+			for _, view in targets do
+				local x, y = BattleState.BugPosition(view.Bug, elapsed)
+				if y < bullet.Y then
+					local distance = math.abs(x - bullet.X) + (bullet.Y - y) * 0.3
+					if distance < bestDistance then
+						best, bestDistance = x, distance
+					end
+				end
+			end
+			if best then
+				bullet.X += math.clamp(best - bullet.X, -HOMING_TURN * deltaTime, HOMING_TURN * deltaTime)
+			end
+		end
+		bullet.Frame.Position = UDim2.fromScale(bullet.X, bullet.Y)
+
+		local hit: BugView? = nil
+		local point = fieldPoint(bullet.X, bullet.Y)
+		for _, view in targets do
+			local x, y = BattleState.BugPosition(view.Bug, elapsed)
+			local delta = point - fieldPoint(x, y)
+			local box = if view.Bug.Kind == "Boss" then BOSS_HIT_PX else Vector2.new(MINION_HIT_PX, MINION_HIT_PX)
+			if math.abs(delta.X) <= box.X and math.abs(delta.Y) <= box.Y then
+				hit = view
+				break
+			end
 		end
 
-		local travel = math.clamp((elapsed - bug.SpawnOffset) / (bug.ReachOffset - bug.SpawnOffset), 0, 1)
-		local x = if bug.Side < 0 then 0.5 * travel else 1 - 0.5 * travel
-		local laneY = if bug.Kind == "Boss" then 0.5 else 0.1 + ((bug.Id % BUG_LANES) / BUG_LANES) * 0.8
-		local phase = elapsed * (if bug.Kind == "Boss" then 4 else 10) + bug.Id
-		-- Crawl: a side-to-side wiggle and a small bob so the bug looks alive.
-		bug.Button.Rotation = math.sin(phase) * (if bug.Kind == "Boss" then 3 else 8)
-		bug.Button.Position = UDim2.new(x, 0, laneY, math.sin(phase * 1.7) * 3)
-
-		-- Warning phase: close to your code the bug flashes and throbs.
-		local danger = travel >= DANGER_TRAVEL
-		local scale = bug.Button:FindFirstChildOfClass("UIScale")
-		if scale and scale.Scale >= 0.99 then
-			scale.Scale = if danger then 1 + 0.12 * math.abs(math.sin(elapsed * 14)) else 1
+		if hit or bullet.Y < -0.05 then
+			bullet.Frame:Destroy()
+			table.remove(bullets, index)
+			if hit then
+				onBulletHit(hit)
+				if hit.Bug.Kind ~= "Boss" then
+					targets = liveTargets(elapsed)
+				end
+			end
+		else
+			index += 1
 		end
-		bug.Button.BackgroundColor3 = if danger and math.sin(elapsed * 14) > 0
-			then Color3.fromRGB(120, 20, 40)
-			else Color3.fromRGB(42, 15, 28)
-
-		-- Targeting: the bug whose name you're typing lights up, so you know the squash is aimed right.
-		local target = if bug.Kind == "Boss" then bossNextWord(bug) or "" else bug.Word
-		local targeted = partialWord ~= "" and string.sub(target, 1, #partialWord) == partialWord
-		bug.Stroke.Color = if targeted then Theme.TYPED else Theme.BUG
-		bug.Stroke.Thickness = if targeted then 3 else (if bug.Kind == "Boss" then 2 else 1)
-
-		-- Until the first squash, each bug carries its own instruction.
-		bug.Hint.Visible = not squashedOnce or bug.Kind == "Boss"
 	end
 end
 
 local function makeBug(info: any): BugView
-	local isBoss = info.Kind == "Boss"
-	local button = Instance.new("TextButton")
-	button.AnchorPoint = Vector2.new(0.5, 0.5)
-	button.Size = if isBoss then UDim2.fromOffset(320, 52) else UDim2.fromOffset(96, 30)
-	button.BackgroundColor3 = Color3.fromRGB(42, 15, 28)
-	button.TextColor3 = Theme.BUG
-	button.Font = Theme.FONT
-	button.TextSize = if isBoss then 18 else 16
-	button.RichText = isBoss
-	button.Text = `🐛 {info.Word}`
-	button.Visible = false
-	button.AutoButtonColor = mode == "Touch"
-	button.ZIndex = if isBoss then 3 else 2
-	button.Parent = bugLayer
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = button
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Theme.BUG
-	stroke.Thickness = if isBoss then 2 else 1
-	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.Parent = button
-
-	local hint = Instance.new("TextLabel")
-	hint.BackgroundTransparency = 1
-	hint.AnchorPoint = Vector2.new(0.5, 1)
-	hint.Position = UDim2.new(0.5, 0, 0, -4)
-	hint.Size = UDim2.fromOffset(240, 18)
-	hint.Font = Theme.FONT
-	hint.TextSize = 14
-	hint.TextColor3 = Theme.MOOD
-	hint.TextStrokeTransparency = 0.3
-	hint.Text = if isBoss
-		then (if mode == "Touch" then "tap it once per word!" else "type each word in order + SPACE!")
-		else (if mode == "Touch" then "tap me!" else `type "{info.Word}" + SPACE`)
-	hint.Parent = button
-
-	local words: { string } = {}
-	if type(info.Words) == "table" then
-		for _, word in info.Words do
-			table.insert(words, tostring(word))
-		end
-	end
-
-	local view: BugView = {
-		Id = info.Id,
-		Kind = if isBoss then "Boss" else "Minion",
+	local bug: BattleState.Bug = {
+		Id = tonumber(info.Id) or 0,
+		Kind = if info.Kind == "Boss" then "Boss" else "Minion",
 		Wave = tonumber(info.Wave) or 1,
-		Word = tostring(info.Word),
-		Words = words,
-		Hp = #words,
-		Side = info.Side,
-		SpawnOffset = info.SpawnOffset,
-		ReachOffset = info.ReachOffset,
-		LastHitOffset = info.SpawnOffset,
+		Side = tonumber(info.Side) or 1,
+		SpawnAt = tonumber(info.SpawnAt) or 0,
+		EntryTime = tonumber(info.EntryTime) or 1,
+		SpawnX = tonumber(info.SpawnX) or 0.5,
+		FormX = tonumber(info.FormX) or 0.5,
+		FormY = tonumber(info.FormY) or 0.2,
+		DiveAt = tonumber(info.DiveAt) or 0,
+		DiveX = tonumber(info.DiveX) or 0.5,
+		ReachAt = tonumber(info.ReachAt) or 0,
+		Hp = tonumber(info.Hp) or 1,
 		State = "Pending",
-		Button = button,
-		Stroke = stroke,
-		Hint = hint,
-		Shown = false,
 	}
+	local isBoss = bug.Kind == "Boss"
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Size = if isBoss then UDim2.fromOffset(150, 70) else UDim2.fromOffset(36, 36)
+	label.Font = Theme.FONT
+	label.TextSize = if isBoss then 54 else 30
+	label.Text = if isBoss then "👾" else (if bug.Id % 3 == 0 then "🪲" else "🐛")
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Visible = false
+	label.ZIndex = if isBoss then 4 else 2
+	label.Parent = field
+
+	local hpFill: Frame? = nil
 	if isBoss then
-		button.Text = bossText(view)
+		local back = Instance.new("Frame")
+		back.AnchorPoint = Vector2.new(0.5, 0)
+		back.Position = UDim2.new(0.5, 0, 1, 2)
+		back.Size = UDim2.fromOffset(130, 8)
+		back.BackgroundColor3 = Theme.PANEL
+		back.BorderSizePixel = 0
+		back.Parent = label
+		local fill = Instance.new("Frame")
+		fill.Size = UDim2.fromScale(1, 1)
+		fill.BackgroundColor3 = Theme.BUG
+		fill.BorderSizePixel = 0
+		fill.Parent = back
+		hpFill = fill
+		local name = Theme.Text(label, tostring(info.BossName or "MEMORY LEAK"), 13, Theme.BUG)
+		name.AutomaticSize = Enum.AutomaticSize.None
+		name.AnchorPoint = Vector2.new(0.5, 1)
+		name.Position = UDim2.new(0.5, 0, 0, 0)
+		name.Size = UDim2.fromOffset(260, 16)
+		name.TextXAlignment = Enum.TextXAlignment.Center
 	end
 
-	button.Activated:Connect(function()
-		if mode ~= "Touch" then
-			return
-		end
-		local word = if view.Kind == "Boss" then bossNextWord(view) else view.Word
-		if word and canHit(view, word, serverElapsed()) then
-			RemoteManager.FireServer(RemoteNames.BattleSquash, word)
-		end
-	end)
-	return view
+	return { Bug = bug, Label = label, HpFill = hpFill, MaxHp = bug.Hp, State = "Pending", Shown = false, HiddenAt = nil }
+end
+
+local function showLoadout(loadout: any)
+	local shield = tonumber(loadout.Shield) or 0
+	fireInterval = math.max(tonumber(loadout.FireInterval) or 0.32, 0.1)
+	homing = loadout.Homing == true
+	local parts = {
+		`🛡 Shield {shield}`,
+		string.format("🔥 Fire %.2fs", fireInterval),
+		`⏪ Rollback {if loadout.Rollback then "✓" else "✗"}`,
+		`🎯 Homing {if homing then "✓" else "✗"}`,
+	}
+	loadoutLabel.Text = "LOADOUT  " .. table.concat(parts, "   ")
+	Juice.Pop(loadoutLabel, 0.3)
+	lastShield = shield
+	shieldLabel.Text = if shield > 0 then `🛡x{shield}` else ""
 end
 
 local function onStarted(info: any)
@@ -444,6 +503,7 @@ local function onStarted(info: any)
 	lastMoodBand = ""
 	faceToken += 1
 	lastSquashLine = 0
+	rollbackShown = false
 	for _, child in bubbleStack:GetChildren() do
 		if child:IsA("Frame") then
 			child:Destroy()
@@ -453,27 +513,42 @@ local function onStarted(info: any)
 	clientSay("Okay, show me what you've got!", true)
 	comboLabel.Text = "x0"
 	lastCombo = 0
-	partialWord = ""
-	squashedOnce = false
 	waveLabel.Text = "GET READY"
 	progressFill.Size = UDim2.fromScale(0, 1)
-	mode = TypingInput.DetectMode()
-	instructionLabel.Text = if mode == "Touch" then INSTRUCTION_TOUCH else INSTRUCTION_KEYBOARD
+	local touch = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	instructionLabel.Text = if touch then INSTRUCTION_TOUCH else INSTRUCTION_KEYBOARD
+	showLoadout(if type(info.Loadout) == "table" then info.Loadout else {})
 
-	for _, bug in info.Bugs do
-		table.insert(bugs, makeBug(bug))
-	end
-
-	if mode == "Keyboard" then
-		local newCatcher = TypingInput.CreateWordCatcher(inputHolder)
-		newCatcher.OnWord = trySquashWord
-		newCatcher.OnPartial = function(partial: string)
-			partialWord = partial
+	for _, bugInfo in info.Bugs do
+		if type(bugInfo) == "table" then
+			bugInfo.BossName = info.BossName
+			table.insert(bugs, makeBug(bugInfo))
 		end
-		catcher = newCatcher
 	end
+	shipX = 0.5
+	nextShotAt = 0
 
-	renderConnection = RunService.RenderStepped:Connect(renderBugs)
+	-- Drag (touch) or hold the mouse to pull the ship toward the pointer; the thumbstick works like keys.
+	local function pointerTarget(position: Vector3)
+		local left = field.AbsolutePosition.X
+		dragTarget = math.clamp((position.X - left) / math.max(field.AbsoluteSize.X, 1), 0, 1)
+	end
+	table.insert(inputConnections, UserInputService.InputBegan:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			pointerTarget(input.Position)
+		end
+	end))
+	table.insert(inputConnections, UserInputService.InputChanged:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			pointerTarget(input.Position)
+		elseif input.UserInputType == Enum.UserInputType.MouseMovement and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+			pointerTarget(input.Position)
+		elseif input.KeyCode == Enum.KeyCode.Thumbstick1 and math.abs(input.Position.X) > 0.2 then
+			dragTarget = math.clamp(shipX + input.Position.X * 0.15, 0, 1)
+		end
+	end))
+
+	renderConnection = RunService.RenderStepped:Connect(step)
 	Music.Play("Battle", 0.8)
 	gui.Enabled = true
 end
@@ -495,31 +570,35 @@ local function celebrateCombo(combo: number)
 	end
 end
 
-local function onBugSquashed(bug: BugView)
-	squashedOnce = true
+local function onBugSquashed(view: BugView)
 	local now = os.clock()
 	if now - lastSquashLine >= SQUASH_LINE_COOLDOWN then
 		lastSquashLine = now
 		cheerFrom("Squash")
 	end
 	Sfx.Play("Splat")
-	Juice.Splat(bugLayer, bug.Button.Position)
+	local x, y = BattleState.BugPosition(view.Bug, serverElapsed())
+	local at = UDim2.fromScale(x, y)
+	Juice.Splat(field, at)
 	if math.random() < PRAISE_CHANCE then
-		Juice.FloatText(bugLayer, bug.Button.Position + UDim2.fromOffset(0, -30), PRAISE[math.random(1, #PRAISE)], Theme.TYPED)
+		Juice.FloatText(field, at + UDim2.fromOffset(0, -30), PRAISE[math.random(1, #PRAISE)], Theme.TYPED)
 	end
 end
 
-local function onBossHit(bug: BugView, newHp: number)
-	cheerFrom("BossHit")
-	bug.Hp = newHp
-	bug.LastHitOffset = serverElapsed()
-	bug.Button.Text = bossText(bug)
+local function onBossHit(view: BugView, newHp: number)
+	view.Bug.Hp = newHp
+	local fill = view.HpFill
+	if fill then
+		TweenService:Create(fill, TweenInfo.new(0.15), { Size = UDim2.fromScale(newHp / math.max(view.MaxHp, 1), 1) }):Play()
+	end
+	-- Not every bullet needs a cheer: speak on every few hits.
+	if (view.MaxHp - newHp) % 4 == 1 then
+		cheerFrom("BossHit")
+	end
 	Sfx.Play("BossHit")
-	Sfx.Play("Splat")
-	Juice.Shake(bug.Button, nil)
-	Juice.FloatText(bugLayer, bug.Button.Position + UDim2.fromOffset(0, -40), "CRACK!", Theme.MOOD)
-	for _ = 1, 5 do
-		Juice.Spark(bugLayer, bug.Button.Position, Theme.MOOD)
+	Juice.FloatText(field, view.Label.Position + UDim2.fromOffset(math.random(-40, 40), -50), "CRACK!", Theme.MOOD)
+	for _ = 1, 3 do
+		Juice.Spark(field, view.Label.Position, Theme.MOOD)
 	end
 end
 
@@ -540,28 +619,44 @@ local function onUpdate(snapshot: any)
 	end
 	lastCombo = combo
 
+	-- Loadout moments: the shield eating a hit, and the one-time rollback save.
+	local shield = tonumber(snapshot.Shield) or 0
+	if shield < lastShield then
+		Sfx.Play("PromptClean")
+		Juice.FloatText(field, UDim2.fromScale(shipX, SHIP_Y - 0.1), "SHIELD!", Theme.TYPED)
+		Juice.Pop(ship, 0.5)
+	end
+	lastShield = shield
+	shieldLabel.Text = if shield > 0 then `🛡x{shield}` else ""
+	if snapshot.RollbackUsed == true and not rollbackShown then
+		rollbackShown = true
+		Sfx.Play("ComboCallout")
+		Juice.Banner(root, "⏪ ROLLBACK! Mood restored", Theme.MOOD, 40)
+	end
+
 	local bossHp = tonumber(snapshot.BossHp)
-	for _, bug in bugs do
-		if bug.Kind == "Boss" and bossHp and bossHp < bug.Hp and bossHp > 0 then
-			onBossHit(bug, bossHp)
+	for _, view in bugs do
+		if view.Bug.Kind == "Boss" and bossHp and bossHp < view.Bug.Hp and bossHp > 0 then
+			onBossHit(view, bossHp)
 		end
 	end
 
 	if type(snapshot.BugStates) ~= "table" then
 		return
 	end
-	for _, bug in bugs do
-		local state = snapshot.BugStates[bug.Id]
-		if type(state) ~= "string" or bug.State ~= "Pending" or state == "Pending" then
+	for _, view in bugs do
+		local state = snapshot.BugStates[view.Bug.Id]
+		if type(state) ~= "string" or view.State ~= "Pending" or state == "Pending" then
 			continue
 		end
 		if state == "Squashed" then
-			if bug.Kind == "Boss" then
+			if view.Bug.Kind == "Boss" then
 				-- Peak moment: the boss breaks.
-				bug.Hp = 0
-				Juice.Splat(bugLayer, bug.Button.Position)
-				Juice.Splat(bugLayer, bug.Button.Position + UDim2.fromOffset(60, 0))
-				Juice.Splat(bugLayer, bug.Button.Position + UDim2.fromOffset(-60, 0))
+				view.Bug.Hp = 0
+				local at = view.Label.Position
+				Juice.Splat(field, at)
+				Juice.Splat(field, at + UDim2.fromOffset(60, 0))
+				Juice.Splat(field, at + UDim2.fromOffset(-60, 0))
 				Juice.Banner(root, "BOSS DOWN!", Theme.TYPED, 58)
 				cheerFrom("BossDown")
 				rootFlash.BackgroundColor3 = Theme.TYPED
@@ -572,7 +667,7 @@ local function onUpdate(snapshot: any)
 					rootFlash.BackgroundTransparency = 1
 				end)
 			else
-				onBugSquashed(bug)
+				onBugSquashed(view)
 			end
 		elseif state == "Hit" then
 			-- Contact: a bug got through. Shake the whole screen and flash it red.
@@ -580,7 +675,8 @@ local function onUpdate(snapshot: any)
 			Juice.Shake(root, rootFlash)
 			Juice.FloatText(moodFill, UDim2.fromScale(0.5, -1.5), "OUCH", Theme.BUG)
 		end
-		bug.State = state
+		view.State = state
+		view.Label.Visible = false
 	end
 end
 
@@ -667,7 +763,7 @@ function BattleController.Init()
 	Theme.Text(left, "CLIENT MOOD", 12, Theme.MUTED).LayoutOrder = 5
 	moodFill = bar(left, Theme.MOOD, 6)
 
-	-- Centre: instruction, wave, ship progress, combo, the bug lane and the typing row.
+	-- Centre: instruction, wave, ship progress, loadout, combo and the playfield.
 	local centre = Instance.new("Frame")
 	centre.BackgroundTransparency = 1
 	centre.Position = UDim2.fromScale(0.28, 0)
@@ -676,7 +772,7 @@ function BattleController.Init()
 
 	local top = Instance.new("Frame")
 	top.BackgroundTransparency = 1
-	top.Size = UDim2.new(1, 0, 0, 84)
+	top.Size = UDim2.new(1, 0, 0, 104)
 	top.Parent = centre
 	Theme.List(top, 4)
 	instructionLabel = Theme.Text(top, INSTRUCTION_KEYBOARD, 14, Theme.MOOD)
@@ -685,44 +781,57 @@ function BattleController.Init()
 	waveLabel.LayoutOrder = 1
 	Theme.Text(top, "SHIP PROGRESS", 12, Theme.MUTED).LayoutOrder = 2
 	progressFill = bar(top, Theme.TYPED, 3)
+	loadoutLabel = Theme.Text(top, "", 13, Theme.TYPED)
+	loadoutLabel.LayoutOrder = 4
 
 	comboLabel = Theme.Text(centre, "x0", 40, Theme.ACCENT)
 	comboLabel.Font = Enum.Font.GothamBlack
 	comboLabel.AnchorPoint = Vector2.new(1, 0)
-	comboLabel.Position = UDim2.new(1, 0, 0, 88)
+	comboLabel.Position = UDim2.new(1, 0, 0, 104)
 	comboLabel.Size = UDim2.fromOffset(160, 44)
 	comboLabel.AutomaticSize = Enum.AutomaticSize.None
 	comboLabel.TextXAlignment = Enum.TextXAlignment.Right
 
-	bugLayer = Instance.new("Frame")
-	bugLayer.BackgroundTransparency = 1
-	bugLayer.Position = UDim2.fromOffset(0, 150)
-	bugLayer.Size = UDim2.new(1, 0, 1, -230)
-	bugLayer.Parent = centre
+	-- Playfield: bugs fly here; YOUR CODE runs along the bottom edge and the ship guards it.
+	field = Instance.new("Frame")
+	field.BackgroundColor3 = Theme.BACKGROUND
+	field.BackgroundTransparency = 0.4
+	field.ClipsDescendants = true
+	field.Position = UDim2.fromOffset(0, 150)
+	field.Size = UDim2.new(1, 0, 1, -150)
+	field.Parent = centre
+	local fieldCorner = Instance.new("UICorner")
+	fieldCorner.CornerRadius = UDim.new(0, 8)
+	fieldCorner.Parent = field
 
-	-- The target: bugs converge on this line. Keep them off it.
 	local codeLine = Instance.new("Frame")
-	codeLine.AnchorPoint = Vector2.new(0.5, 0)
-	codeLine.Position = UDim2.fromScale(0.5, 0)
-	codeLine.Size = UDim2.new(0, 4, 1, 0)
+	codeLine.AnchorPoint = Vector2.new(0, 1)
+	codeLine.Position = UDim2.fromScale(0, 1)
+	codeLine.Size = UDim2.new(1, 0, 0, 4)
 	codeLine.BackgroundColor3 = Theme.ACCENT
-	codeLine.BackgroundTransparency = 0.35
+	codeLine.BackgroundTransparency = 0.3
 	codeLine.BorderSizePixel = 0
-	codeLine.Parent = bugLayer
-	local codeLabel = Theme.Text(bugLayer, "▼ YOUR CODE ▼", 12, Theme.ACCENT)
+	codeLine.Parent = field
+	local codeLabel = Theme.Text(field, "▲ YOUR CODE ▲", 12, Theme.ACCENT)
 	codeLabel.AnchorPoint = Vector2.new(0.5, 1)
-	codeLabel.Position = UDim2.fromScale(0.5, 0)
+	codeLabel.Position = UDim2.new(0.5, 0, 1, -6)
 	codeLabel.Size = UDim2.fromOffset(140, 16)
 	codeLabel.AutomaticSize = Enum.AutomaticSize.None
 	codeLabel.TextXAlignment = Enum.TextXAlignment.Center
 
-	inputHolder = Instance.new("Frame")
-	inputHolder.BackgroundTransparency = 1
-	inputHolder.AnchorPoint = Vector2.new(0, 1)
-	inputHolder.Position = UDim2.fromScale(0, 1)
-	inputHolder.Size = UDim2.new(1, 0, 0, 64)
-	inputHolder.Parent = centre
-
+	ship = Theme.Text(field, "🚀", 34)
+	ship.AutomaticSize = Enum.AutomaticSize.None
+	ship.AnchorPoint = Vector2.new(0.5, 0.5)
+	ship.Size = UDim2.fromOffset(40, 40)
+	ship.TextXAlignment = Enum.TextXAlignment.Center
+	ship.ZIndex = 5
+	ship.Position = UDim2.fromScale(0.5, SHIP_Y)
+	shieldLabel = Theme.Text(ship, "", 13, Theme.TYPED)
+	shieldLabel.AutomaticSize = Enum.AutomaticSize.None
+	shieldLabel.AnchorPoint = Vector2.new(0.5, 0)
+	shieldLabel.Position = UDim2.new(0.5, 0, 1, -2)
+	shieldLabel.Size = UDim2.fromOffset(60, 16)
+	shieldLabel.TextXAlignment = Enum.TextXAlignment.Center
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 end

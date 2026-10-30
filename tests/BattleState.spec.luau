@@ -1,12 +1,9 @@
 --!strict
 local BattleState = require("../src/ReplicatedStorage/Shared/BattleState")
 local GameConfig = require("../src/ReplicatedStorage/Shared/GameConfig")
-local PromptBank = require("../src/ReplicatedStorage/Shared/PromptBank")
 
 local RULES = GameConfig.BATTLE_RULES
-local BOSS_PHRASE = "memory overflow in production"
 
--- Deterministic stand-in for Random: steps through (n * 0.37) % 1 so consecutive bugs get different words.
 local function makeRng(): () -> number
 	local n = 0
 	return function(): number
@@ -15,8 +12,14 @@ local function makeRng(): () -> number
 	end
 end
 
-local function newBattle(avgQuality: number, rules: BattleState.BattleRules?): BattleState.Battle
-	return BattleState.New(0, avgQuality, PromptBank.BUG_WORDS, BOSS_PHRASE, rules or RULES, makeRng())
+local function grades(s: number, a: number, b: number, c: number): BattleState.GradeCounts
+	return { S = s, A = a, B = b, C = c }
+end
+
+local BARE: BattleState.Loadout = { Shield = 0, FireInterval = RULES.BaseFireInterval, Rollback = false, Homing = false }
+
+local function newBattle(avgQuality: number, loadout: BattleState.Loadout?): BattleState.Battle
+	return BattleState.New(0, avgQuality, loadout or BARE, RULES, makeRng())
 end
 
 local function minions(b: BattleState.Battle): { BattleState.Bug }
@@ -38,9 +41,17 @@ local function boss(b: BattleState.Battle): BattleState.Bug
 	error("no boss")
 end
 
-local function assertDistinctEarlyWords(b: BattleState.Battle)
-	for i = 2, 4 do
-		assert(b.Bugs[i].Word ~= b.Bugs[1].Word, "test precondition: early bug words must differ")
+-- Kills every minion right after it becomes visible, in time order.
+local function clearMinionsUntil(b: BattleState.Battle, untilTime: number)
+	local list = minions(b)
+	table.sort(list, function(x: BattleState.Bug, y: BattleState.Bug): boolean
+		return x.SpawnAt < y.SpawnAt
+	end)
+	for _, bug in list do
+		local at = bug.SpawnAt + RULES.VisibleDelay + 0.1
+		if at < untilTime then
+			BattleState.Kill(b, bug.Id, at)
+		end
 	end
 end
 
@@ -51,24 +62,15 @@ tests["start mood from quality"] = function()
 	assert(newBattle(3).Mood == 100)
 end
 
-tests["first bug timing"] = function()
+tests["waves then one boss"] = function()
 	local b = newBattle(3)
-	assert(b.Bugs[1].SpawnAt == RULES.FirstBugDelay)
-	assert(b.Bugs[1].ReachAt == RULES.FirstBugDelay + RULES.Waves[1].Travel)
-	assert(b.Bugs[1].Wave == 1)
-end
-
-tests["waves then one boss with a health point per word"] = function()
-	local b = newBattle(3)
-	local list = minions(b)
-	assert(#list >= RULES.Waves[1].Count + RULES.Waves[2].Count, `only {#list} minions`)
+	assert(#minions(b) >= RULES.Waves[1].Count + RULES.Waves[2].Count)
 	local theBoss = boss(b)
-	assert(theBoss.Hp == 4 and #theBoss.Words == 4)
-	assert(theBoss.Wave == #RULES.Waves + 1)
-	-- the boss arrives after both regular waves have started spawning
-	for _, bug in list do
+	assert(theBoss.Hp == RULES.BossHp)
+	for _, bug in minions(b) do
+		assert(bug.SpawnAt < bug.DiveAt and bug.DiveAt < bug.ReachAt, "bug timeline out of order")
 		if bug.Wave <= #RULES.Waves then
-			assert(bug.SpawnAt < theBoss.SpawnAt, "regular wave bug spawned after the boss")
+			assert(bug.SpawnAt < theBoss.SpawnAt)
 		end
 	end
 end
@@ -77,157 +79,147 @@ tests["sloppy components bring more bugs"] = function()
 	assert(#minions(newBattle(0)) > #minions(newBattle(3)))
 end
 
-tests["bug hit after grace"] = function()
+tests["bug flight path"] = function()
+	local b = newBattle(3)
+	local bug = minions(b)[1]
+	local _, startY = BattleState.BugPosition(bug, bug.SpawnAt)
+	assert(startY < 0, "bugs enter from above the screen")
+	local formX, formY = BattleState.BugPosition(bug, bug.SpawnAt + bug.EntryTime + 0.01)
+	assert(math.abs(formY - bug.FormY) < 1e-6 and formX > 0 and formX < 1)
+	local _, endY = BattleState.BugPosition(bug, bug.ReachAt)
+	assert(endY > 1, "divers end below your code")
+	for t = bug.SpawnAt, bug.ReachAt, 0.25 do
+		local x, y = BattleState.BugPosition(bug, t)
+		assert(x > -0.2 and x < 1.2 and y > -0.3 and y < 1.2, `off the field at {t}`)
+	end
+end
+
+tests["bug that reaches your code hurts"] = function()
 	local b = newBattle(0)
-	local first = b.Bugs[1]
-	BattleState.Tick(b, first.ReachAt + RULES.LatencyGrace - 0.01)
-	assert(first.State == "Pending")
-	BattleState.Tick(b, first.ReachAt + RULES.LatencyGrace + 0.01)
-	assert(first.State == "Hit")
+	local bug = minions(b)[1]
+	BattleState.Tick(b, bug.ReachAt + RULES.LatencyGrace - 0.01)
+	assert(bug.State == "Pending")
+	BattleState.Tick(b, bug.ReachAt + RULES.LatencyGrace + 0.01)
+	assert(bug.State == "Hit" and b.Mood == 70 - RULES.MoodHitPenalty and b.Mistakes == 1)
+end
+
+tests["shield absorbs hits"] = function()
+	local b = newBattle(0, { Shield = 1, FireInterval = RULES.BaseFireInterval, Rollback = false, Homing = false })
+	local list = minions(b)
+	table.sort(list, function(x: BattleState.Bug, y: BattleState.Bug): boolean
+		return x.ReachAt < y.ReachAt
+	end)
+	BattleState.Tick(b, list[1].ReachAt + RULES.LatencyGrace + 0.01)
+	assert(b.Mood == 70 and b.Shield == 0, "the shield should take the first hit")
+	BattleState.Tick(b, list[2].ReachAt + RULES.LatencyGrace + 0.01)
 	assert(b.Mood == 70 - RULES.MoodHitPenalty)
 end
 
-tests["squash within grace (lag)"] = function()
-	local b = newBattle(0)
-	assertDistinctEarlyWords(b)
-	local first = b.Bugs[1]
-	assert(BattleState.Squash(b, first.Word, first.ReachAt + RULES.LatencyGrace - 0.05) == true)
-	assert(first.State == "Squashed" and b.Combo == 1 and b.MaxCombo == 1)
+tests["rollback saves you once"] = function()
+	local b = newBattle(0, { Shield = 0, FireInterval = RULES.BaseFireInterval, Rollback = true, Homing = false })
+	b.Mood = 10
+	local bug = minions(b)[1]
+	BattleState.Tick(b, bug.ReachAt + RULES.LatencyGrace + 0.01)
+	assert(b.Mood == RULES.RollbackMood and b.RollbackUsed and b.Status == "Running")
+end
 
+tests["kill a visible bug"] = function()
+	local b = newBattle(0)
+	local bug = minions(b)[1]
+	assert(BattleState.Kill(b, bug.Id, bug.SpawnAt + 0.05) == false, "can't hit a bug that isn't on screen yet")
+	assert(BattleState.Kill(b, bug.Id, bug.SpawnAt + RULES.VisibleDelay + 0.1) == true)
+	assert(bug.State == "Squashed" and b.Combo == 1 and b.Successes == 1)
+	assert(BattleState.Kill(b, bug.Id, bug.SpawnAt + 1) == false, "already dead")
+end
+
+tests["kill within grace after reaching (lag)"] = function()
+	local b = newBattle(0)
+	local bug = minions(b)[1]
+	assert(BattleState.Kill(b, bug.Id, bug.ReachAt + RULES.LatencyGrace - 0.05) == true)
 	local late = newBattle(0)
-	assert(BattleState.Squash(late, late.Bugs[1].Word, late.Bugs[1].ReachAt + RULES.LatencyGrace + 0.05) == false)
-	assert(late.Bugs[1].State == "Hit")
+	local lateBug = minions(late)[1]
+	assert(BattleState.Kill(late, lateBug.Id, lateBug.ReachAt + RULES.LatencyGrace + 0.05) == false)
 end
 
-tests["squash is case and space tolerant"] = function()
+tests["kills can't outpace the fire rate"] = function()
 	local b = newBattle(0)
-	local first = b.Bugs[1]
-	assert(BattleState.Squash(b, "  " .. string.upper(first.Word) .. " ", first.SpawnAt + 1) == true)
-end
-
-tests["squash faster than typing the word fails"] = function()
-	local b = newBattle(0)
-	local first = b.Bugs[1]
-	assert(BattleState.Squash(b, first.Word, first.SpawnAt + 0.05) == false)
-	assert(first.State == "Pending")
-	assert(BattleState.Squash(b, first.Word, first.SpawnAt + 0.5) == true)
-end
-
-tests["missed squash costs mood and combo"] = function()
-	local b = newBattle(0)
-	local first = b.Bugs[1]
-	BattleState.Squash(b, first.Word, first.SpawnAt + 1)
-	assert(b.Combo == 1)
-	BattleState.Squash(b, "notabug", first.SpawnAt + 1.5)
-	assert(b.Combo == 0)
-	assert(b.Mood == 70 - RULES.MissedSquashPenalty, `mood {b.Mood}`)
-end
-
-tests["boss words must be typed in order"] = function()
-	local b = newBattle(3)
-	local theBoss = boss(b)
-	local t = theBoss.SpawnAt + 1
-	-- clear the regular waves first so the client is still on the call when the boss arrives
-	for _, bug in minions(b) do
-		if bug.SpawnAt + 0.6 < t then
-			BattleState.Squash(b, bug.Word, bug.SpawnAt + 0.6)
+	local list = minions(b)
+	local t = 0
+	for _, bug in list do
+		t = math.max(t, bug.SpawnAt + RULES.VisibleDelay + 0.01)
+	end
+	-- every bug claimed at one instant: far more kills than shots fired so far
+	local accepted = 0
+	for _, bug in list do
+		if BattleState.Kill(b, bug.Id, math.min(t, bug.ReachAt)) then
+			accepted += 1
 		end
 	end
-	assert(BattleState.Squash(b, "overflow", t) == false, "second word hit before the first")
-	assert(theBoss.Hp == 4)
-	assert(BattleState.Squash(b, "memory", t + 0.5) == true)
-	assert(theBoss.Hp == 3 and theBoss.State == "Pending")
-	assert(BattleState.Squash(b, "overflow", t + 1.2) == true)
-	assert(BattleState.Squash(b, "in", t + 1.5) == true)
-	assert(BattleState.Squash(b, "production", t + 2.5) == true)
+	local budget = math.floor(t / RULES.BaseFireInterval) + RULES.ShotBudgetSlack
+	assert(accepted <= budget, `accepted {accepted} with budget {budget}`)
+end
+
+tests["boss takes many hits"] = function()
+	local b = newBattle(3)
+	local theBoss = boss(b)
+	local t = theBoss.SpawnAt + RULES.VisibleDelay + 0.1
+	clearMinionsUntil(b, t)
+	for hit = 1, RULES.BossHp do
+		assert(BattleState.Kill(b, theBoss.Id, t + hit * RULES.BaseFireInterval), `boss hit {hit}`)
+	end
 	assert(theBoss.Hp == 0 and theBoss.State == "Squashed")
 end
 
 tests["boss reaching your code hurts a lot"] = function()
 	local b = newBattle(3)
 	local theBoss = boss(b)
-	-- squash every minion so only the boss can hurt
-	for _, bug in minions(b) do
-		BattleState.Squash(b, bug.Word, bug.SpawnAt + 0.6)
-	end
-	local moodBefore = b.Mood
+	clearMinionsUntil(b, math.huge)
+	local before = b.Mood
 	BattleState.Tick(b, theBoss.ReachAt + RULES.LatencyGrace + 0.01)
-	assert(theBoss.State == "Hit")
-	assert(b.Mood == moodBefore - RULES.BossHitPenalty, `mood {b.Mood}`)
+	assert(theBoss.State == "Hit" and b.Mood == before - RULES.BossHitPenalty)
 end
 
 tests["ships when every bug is dealt with"] = function()
 	local b = newBattle(3)
-	type Event = { At: number, Word: string }
-	local events: { Event } = {}
-	for _, bug in b.Bugs do
-		if bug.Kind == "Minion" then
-			table.insert(events, { At = bug.SpawnAt + 0.6, Word = bug.Word })
-		else
-			for index, word in bug.Words do
-				table.insert(events, { At = bug.SpawnAt + 0.7 * index, Word = word })
-			end
-		end
-	end
-	table.sort(events, function(a: Event, c: Event): boolean
-		return a.At < c.At
-	end)
-	for _, event in events do
-		BattleState.Squash(b, event.Word, event.At)
+	clearMinionsUntil(b, math.huge)
+	local theBoss = boss(b)
+	local t = math.max(theBoss.SpawnAt + RULES.VisibleDelay + 0.1, b.LastKillAt)
+	for hit = 1, RULES.BossHp do
+		BattleState.Kill(b, theBoss.Id, t + hit * RULES.BaseFireInterval)
 	end
 	assert(b.Status == "Shipped", `status {b.Status}`)
 	local result = BattleState.Result(b)
-	assert(result.Status == "Shipped" and result.Accuracy == 1 and result.MoodRatio == 1)
-	assert(result.MaxCombo == #events, `max combo {result.MaxCombo} of {#events}`)
+	assert(result.Accuracy == 1 and result.Mistakes == 0 and result.Successes == #minions(b) + RULES.BossHp)
 end
 
 tests["fails at zero mood"] = function()
 	local b = newBattle(0)
-	BattleState.Tick(b, 40)
-	assert(b.Status == "Failed", `status {b.Status}`)
+	BattleState.Tick(b, 200)
+	assert(b.Status == "Failed")
 end
 
-tests["finished battle ignores input"] = function()
-	local b = newBattle(0)
-	BattleState.Tick(b, 40)
-	local last = b.Bugs[#b.Bugs]
-	assert(BattleState.Squash(b, last.Word, last.SpawnAt + 1) == false)
+tests["loadout from parts"] = function()
+	local inventory = {
+		FrontendUnits = grades(2, 0, 0, 0),
+		BackendEndpoints = grades(1, 0, 0, 0),
+		DatabaseTables = grades(0, 0, 0, 1),
+		PromptTokens = grades(0, 1, 0, 0),
+	}
+	local loadout = BattleState.LoadoutFrom(inventory, RULES)
+	assert(loadout.Shield == 3)
+	assert(math.abs(loadout.FireInterval - (RULES.BaseFireInterval - 3 * RULES.FireIntervalPerQuality)) < 1e-9)
+	assert(loadout.Rollback == false and loadout.Homing == true)
+	local empty = BattleState.LoadoutFrom({}, RULES)
+	assert(empty.Shield == 0 and empty.FireInterval == RULES.BaseFireInterval)
 end
 
 tests["snapshot"] = function()
 	local b = newBattle(3)
-	local first = b.Bugs[1]
-	BattleState.Squash(b, first.Word, first.SpawnAt + 1)
+	local bug = minions(b)[1]
+	BattleState.Kill(b, bug.Id, bug.SpawnAt + RULES.VisibleDelay + 0.1)
 	local snapshot = BattleState.Snapshot(b)
-	assert(snapshot.Mood == 100 and snapshot.Combo == 1)
-	assert(snapshot.Progress > 0 and snapshot.Progress < 1)
-	assert(snapshot.BugStates[first.Id] == "Squashed")
-	assert(snapshot.BossHp == 4)
-	assert(snapshot.Status == "Running")
-end
-
-tests["successes and mistakes are counted"] = function()
-	local b = newBattle(0)
-	local first, second = b.Bugs[1], b.Bugs[2]
-	BattleState.Squash(b, first.Word, first.SpawnAt + 1) -- success
-	BattleState.Squash(b, "notabug", first.SpawnAt + 1.5) -- mistake: missed squash
-	BattleState.Tick(b, second.ReachAt + RULES.LatencyGrace + 0.01) -- mistake: bug got through
-	local result = BattleState.Result(b)
-	assert(result.Successes == 1, `successes {result.Successes}`)
-	assert(result.Mistakes >= 2, `mistakes {result.Mistakes}`)
-end
-
-tests["boss word hits count as successes"] = function()
-	local b = newBattle(3)
-	local theBoss = boss(b)
-	for _, bug in minions(b) do
-		if bug.SpawnAt + 0.6 < theBoss.SpawnAt + 1 then
-			BattleState.Squash(b, bug.Word, bug.SpawnAt + 0.6)
-		end
-	end
-	local before = BattleState.Result(b).Successes
-	BattleState.Squash(b, "memory", theBoss.SpawnAt + 1)
-	assert(BattleState.Result(b).Successes == before + 1)
+	assert(snapshot.Combo == 1 and snapshot.Progress > 0 and snapshot.Progress < 1)
+	assert(snapshot.BugStates[bug.Id] == "Squashed" and snapshot.BossHp == RULES.BossHp and snapshot.Shield == 0)
 end
 
 return tests

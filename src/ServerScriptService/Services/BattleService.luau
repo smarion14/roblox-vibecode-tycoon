@@ -23,7 +23,7 @@ type ActiveBattle = {
 }
 
 local TICK_SECONDS = 0.1
-local SQUASH_RATE_LIMIT = 15
+local SHOT_RATE_LIMIT = 12 -- above the fastest fire rate; BattleState also enforces a shot budget
 
 local BattleService = {}
 
@@ -36,7 +36,7 @@ local function snapshotKey(snapshot: BattleState.BattleSnapshot): string
 			resolved += 1
 		end
 	end
-	return `{snapshot.Mood}|{snapshot.Combo}|{snapshot.BossHp}|{snapshot.Status}|{resolved}`
+	return `{snapshot.Mood}|{snapshot.Combo}|{snapshot.BossHp}|{snapshot.Shield}|{snapshot.RollbackUsed}|{snapshot.Status}|{resolved}`
 end
 
 local function pushUpdate(player: Player, active: ActiveBattle, force: boolean)
@@ -102,28 +102,35 @@ local function onDeployTerminal(player: Player)
 	local rng = Random.new()
 	local clockStart = os.clock()
 	local serverStart = Workspace:GetServerTimeNow()
+	local loadout = BattleState.LoadoutFrom(save.Inventory, GameConfig.BATTLE_RULES)
 	local battle = BattleState.New(
 		clockStart,
 		Economy.AverageQuality(save.Inventory),
-		PromptBank.BUG_WORDS,
-		PromptBank.BOSS_PHRASES[rng:NextInteger(1, #PromptBank.BOSS_PHRASES)],
+		loadout,
 		GameConfig.BATTLE_RULES,
 		function(): number
 			return rng:NextNumber()
 		end
 	)
 
+	-- The client gets every bug's flight plan with times relative to the battle start, and replays the same
+	-- BattleState.BugPosition paths against the shared server clock.
 	local bugs = {}
 	for _, bug in battle.Bugs do
 		table.insert(bugs, {
 			Id = bug.Id,
 			Kind = bug.Kind,
 			Wave = bug.Wave,
-			Word = bug.Word,
-			Words = bug.Words,
 			Side = bug.Side,
-			SpawnOffset = bug.SpawnAt - clockStart,
-			ReachOffset = bug.ReachAt - clockStart,
+			SpawnAt = bug.SpawnAt - clockStart,
+			EntryTime = bug.EntryTime,
+			SpawnX = bug.SpawnX,
+			FormX = bug.FormX,
+			FormY = bug.FormY,
+			DiveAt = bug.DiveAt - clockStart,
+			DiveX = bug.DiveX,
+			ReachAt = bug.ReachAt - clockStart,
+			Hp = bug.Hp,
 		})
 	end
 
@@ -133,6 +140,8 @@ local function onDeployTerminal(player: Player)
 	RemoteManager.FireClient(RemoteNames.BattleStarted, player, {
 		ServerStart = serverStart,
 		ClientName = job.Name,
+		BossName = string.upper(PromptBank.BOSS_PHRASES[rng:NextInteger(1, #PromptBank.BOSS_PHRASES)]),
+		Loadout = loadout,
 		Mood = battle.Mood,
 		WaveCount = #GameConfig.BATTLE_RULES.Waves,
 		Bugs = bugs,
@@ -153,15 +162,16 @@ local function onDeployTerminal(player: Player)
 	end)
 end
 
-local function onSquash(player: Player, word: any)
-	if type(word) ~= "string" or #word > GameConfig.MAX_REMOTE_STRING then
+-- A bullet hit a bug: the client sends the bug's id; BattleState checks it's possible.
+local function onShotHit(player: Player, bugId: any)
+	if type(bugId) ~= "number" or bugId % 1 ~= 0 then
 		return
 	end
 	local active = battles[player]
 	if not active or not active.Running then
 		return
 	end
-	BattleState.Squash(active.Battle, word, os.clock())
+	BattleState.Kill(active.Battle, bugId, os.clock())
 	afterInput(player, active)
 end
 
@@ -169,7 +179,7 @@ function BattleService.Init() end
 
 function BattleService.Start()
 	PlotService.OnPromptTriggered("DeployTerminal", onDeployTerminal)
-	RemoteManager.Listen(RemoteNames.BattleSquash, onSquash, SQUASH_RATE_LIMIT, 1)
+	RemoteManager.Listen(RemoteNames.BattleSquash, onShotHit, SHOT_RATE_LIMIT, 1)
 	-- Leaving mid-battle settles nothing: the job and every built component are kept.
 	Players.PlayerRemoving:Connect(function(player: Player)
 		local active = battles[player]

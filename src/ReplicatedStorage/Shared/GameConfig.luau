@@ -106,25 +106,41 @@ GameConfig.BURST_RULES = {
 	ErrorPenalty = 1.5,
 }
 
--- Deploy battle: bugs only. Regular waves, then a boss phrase typed word by word while minions escort it.
--- Each missing quality point (S=3 ... C=0 average) adds ExtraBugsPerMissingQuality bugs to every wave.
+-- Deploy battle: a Galaga-style shooter. Bugs enter from the top, hold formation, then dive at YOUR CODE.
+-- Your app fires automatically; move to aim. Each missing quality point (S=3 ... C=0 average) adds
+-- ExtraBugsPerMissingQuality bugs to every wave. Station grades set the loadout (LoadoutComponents).
 GameConfig.BATTLE_RULES = {
 	Waves = {
-		{ Count = 4, Interval = 2.4, Travel = 7 },
-		{ Count = 7, Interval = 1.6, Travel = 6 },
+		{ Count = 6, Interval = 0.9, DiveDelay = 5, DiveSpacing = 1.1, DiveTime = 3.2 },
+		{ Count = 9, Interval = 0.7, DiveDelay = 4, DiveSpacing = 0.85, DiveTime = 2.6 },
 	},
-	FirstBugDelay = 2,
-	WaveGap = 3,
+	FirstBugDelay = 1.5,
+	WaveGap = 2.5,
+	EntryTime = 1.2,
+	VisibleDelay = 0.3,
 	ExtraBugsPerMissingQuality = 1,
-	BossTravel = 22,
-	BossMinionInterval = 2.6,
-	BossMinionTravel = 6.5,
-	LatencyGrace = 0.25,
+	BossHp = 14,
+	BossEntryTime = 2,
+	BossHoldTime = 4,
+	BossTravel = 14,
+	BossMinionInterval = 2.5,
+	BossMinionDiveTime = 2.8,
+	LatencyGrace = 0.3,
 	MoodHitPenalty = 15,
 	BossHitPenalty = 40,
-	MissedSquashPenalty = 3,
-	MaxDuration = 120,
-	MaxCharsPerSecond = 20,
+	MaxDuration = 150,
+	BaseFireInterval = 0.32,
+	FireIntervalPerQuality = 0.05, -- an all-S Server Rack fires every 0.17s
+	ShotBudgetSlack = 4,
+	RollbackMood = 50,
+	RollbackMinQuality = 2, -- Database Console averaging A or better
+	HomingMinQuality = 2, -- AI Model Rig averaging A or better
+	LoadoutComponents = {
+		Shield = "FrontendUnits",
+		FireRate = "BackendEndpoints",
+		Rollback = "DatabaseTables",
+		Homing = "PromptTokens",
+	},
 }
 
 -- Time of day: one full day every DayLengthSeconds, starting at StartClock (24h). Night runs about 18:00-06:00.
