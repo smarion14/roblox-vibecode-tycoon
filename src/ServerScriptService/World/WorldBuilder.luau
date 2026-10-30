@@ -11,6 +11,7 @@ local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local World = ServerScriptService:WaitForChild("World")
 local Props = require(World:WaitForChild("Props"))
 local HomelabLayout = require(World:WaitForChild("HomelabLayout"))
+local OfficeLayout = require(World:WaitForChild("OfficeLayout"))
 
 local UNIT_SIZE = 44
 local UNIT_GAP = 8
@@ -39,7 +40,11 @@ function WorldBuilder.BuildContents(unit: Model, act: number)
 	local contents = unit:FindFirstChild("Contents") :: Folder
 	contents:ClearAllChildren()
 	local origin = unit:GetAttribute("OriginCFrame") :: CFrame
-	HomelabLayout.Build(contents, origin, UNIT_SIZE / 2)
+	if act >= 2 then
+		OfficeLayout.Build(contents, origin, UNIT_SIZE / 2)
+	else
+		HomelabLayout.Build(contents, origin, UNIT_SIZE / 2)
+	end
 end
 
 function WorldBuilder.SetSignText(unit: Model, text: string)
