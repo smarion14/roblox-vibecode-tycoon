@@ -71,11 +71,17 @@ local function lookFor(player: Player, slot: number): HumanoidDescription
 	return randomLook()
 end
 
-local function spawnEmployee(player: Player, desk: BasePart, seat: Seat, role: string, slot: number)
+local function buildModel(description: HumanoidDescription): Model?
 	local ok, model = pcall(function(): Model
-		return Players:CreateHumanoidModelFromDescription(lookFor(player, slot), Enum.HumanoidRigType.R15)
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
 	end)
-	if not ok or not model or not desk.Parent then
+	return if ok then model else nil
+end
+
+local function spawnEmployee(player: Player, desk: BasePart, seat: Seat, role: string, slot: number)
+	-- A friend's outfit can fail to build (missing or moderated assets); fall back to a plain random look.
+	local model = buildModel(lookFor(player, slot)) or buildModel(randomLook())
+	if not model or not desk.Parent then
 		return
 	end
 	model.Name = `Employee_{role}`
@@ -144,7 +150,12 @@ function EmployeeService.Refresh(player: Player)
 				-- Spawning yields on web calls; the flag stops an overlapping refresh from adding a second NPC.
 				desk:SetAttribute("Spawning", true)
 				task.spawn(function()
-					spawnEmployee(player, desk, seat, role, slot)
+					local ok, err = pcall(function()
+						spawnEmployee(player, desk, seat, role, slot)
+					end)
+					if not ok then
+						warn(`EmployeeService: {role} failed to spawn: {err}`)
+					end
 					desk:SetAttribute("Spawning", nil)
 				end)
 			end

@@ -374,11 +374,17 @@ local function play(id: string, copy: { [string]: any })
 	skipButton.Visible = true
 	Music.Play("Cutscene", 1.5)
 
-	for _, step in steps do
-		if skipping then
-			break
+	-- A failing step must never strand the player with controls off, so errors fall through to the restore.
+	local ran, err = pcall(function()
+		for _, step in steps do
+			if skipping then
+				break
+			end
+			runStep(scene, step)
 		end
-		runStep(scene, step)
+	end)
+	if not ran then
+		warn(`Cutscene {id} failed: {err}`)
 	end
 
 	-- Restore everything. A scene that ends on black stays black for the next scene's first fade to clear.
@@ -521,8 +527,13 @@ function CutsceneController.Start()
 			or input.UserInputType == Enum.UserInputType.Touch
 			or input.KeyCode == Enum.KeyCode.Space
 			or input.KeyCode == Enum.KeyCode.Return
+			or input.KeyCode == Enum.KeyCode.ButtonA
 		then
 			advanced = true
+		elseif input.KeyCode == Enum.KeyCode.ButtonB then
+			-- Gamepads have no cursor for the Skip button.
+			skipping = true
+			NameDialog.Close()
 		end
 	end)
 end
