@@ -378,4 +378,135 @@ tests["bad ship times are ignored"] = function()
 	assert(#b.ShipSamples == 1 and BattleState.ShipXAt(b, 20) == 0.5)
 end
 
+local SQUAD = GameConfig.SQUAD
+
+local function enemyBattle(kind: ("Crash" | "Lag")?, volleys: boolean): BattleState.Battle
+	return BattleState.New(0, 0, BARE, RULES, makeRng(), {
+		Wingmen = {},
+		EnemyKind = kind,
+		BossVolleys = volleys,
+		Squad = SQUAD,
+	})
+end
+
+local function firstOfKind(b: BattleState.Battle, kind: BattleState.BugKind): BattleState.Bug
+	for _, bug in b.Bugs do
+		if bug.Kind == kind then
+			return bug
+		end
+	end
+	error(`no {kind}`)
+end
+
+-- Everything but `keep` counts as shot down, so only the thing under test can move mood.
+local function clearAllBut(b: BattleState.Battle, keep: BattleState.Bug)
+	for _, bug in b.Bugs do
+		if bug ~= keep then
+			bug.State = "Squashed"
+		end
+	end
+end
+
+-- When a bullet crosses the ship's row, and its x there.
+local function crossing(bullet: BattleState.Bullet): (number, number)
+	local t = bullet.FiredAt + (SQUAD.ShipY - bullet.OriginY) / (bullet.DirY * SQUAD.BulletSpeed)
+	local x = BattleState.BulletPosition(bullet, SQUAD.BulletSpeed, t)
+	return t, x
+end
+
+tests["crash reports split into two shards"] = function()
+	local b = enemyBattle("Crash", false)
+	assert(b.Bugs[3].Kind == "Crash" and b.Bugs[6].Kind == "Crash" and b.Bugs[4].Kind == "Minion", "every third minion")
+	local crash = firstOfKind(b, "Crash")
+	local at = crash.SpawnAt + RULES.VisibleDelay + 0.1
+	local count = #b.Bugs
+	assert(BattleState.Kill(b, crash.Id, at))
+	assert(#b.Bugs == count + 2, `{#b.Bugs} bugs`)
+	local cx = BattleState.BugPosition(crash, at)
+	for i = count + 1, count + 2 do
+		local shard = b.Bugs[i]
+		assert(shard.Kind == "Shard" and shard.Id == i and shard.SpawnAt == at and shard.Hp == 1)
+		assert(math.abs(math.abs(shard.FormX - cx) - SQUAD.ShardSpread) < 1e-9)
+		assert(shard.ReachAt == at + SQUAD.ShardDiveDelay + SQUAD.ShardDiveTime)
+		local _, y = BattleState.BugPosition(shard, at)
+		assert(y > 0, "shards appear where the crash was, not at the top")
+		assert(BattleState.Kill(b, shard.Id, shard.SpawnAt + RULES.VisibleDelay + 0.01), `shard {i}`)
+	end
+	assert(BattleState.Snapshot(b).BugCount == count + 2)
+end
+
+tests["claims need the weapon and a live bug"] = function()
+	local b = enemyBattle("Crash", false)
+	local crash = firstOfKind(b, "Crash")
+	local at = crash.SpawnAt + RULES.VisibleDelay + 0.1
+	assert(BattleState.Kill(b, #b.Bugs + 1, at) == false, "no such bug")
+	assert(BattleState.Kill(b, crash.Id, at, "Spread") == false, "no frontend wingman")
+	assert(BattleState.Kill(b, crash.Id, at))
+	assert(BattleState.Kill(b, #b.Bugs, at + 0.1) == false, "shard not on screen yet")
+end
+
+tests["lag spikes slow only when they reach the ship"] = function()
+	for _, offset in { 0, 0.3 } do
+		local b = enemyBattle("Lag", false)
+		local lag = firstOfKind(b, "Lag")
+		clearAllBut(b, lag)
+		local x = lag.DiveX + (if lag.DiveX < 0.5 then offset else -offset)
+		BattleState.MoveShip(b, x, lag.ReachAt - 0.5)
+		BattleState.Tick(b, lag.ReachAt + RULES.LatencyGrace + 0.01)
+		assert(lag.State == "Hit")
+		if offset == 0 then
+			assert(b.SlowUntil > lag.ReachAt and b.Mood == 70, `slow {b.SlowUntil}, mood {b.Mood}`)
+			assert(BattleState.Snapshot(b).SlowUntil == b.SlowUntil)
+		else
+			assert(b.SlowUntil < lag.ReachAt and b.Mood == 70 - RULES.MoodHitPenalty, `mood {b.Mood}`)
+		end
+	end
+end
+
+tests["boss volleys hit a ship in the way and miss one that dodged"] = function()
+	assert(#enemyBattle(nil, false).Bullets == 0, "no volleys unless asked")
+	for _, offset in { 0, 0.3 } do
+		local b = enemyBattle(nil, true)
+		local theBoss = boss(b)
+		clearAllBut(b, theBoss)
+		local bullet = b.Bullets[1]
+		assert(bullet.FiredAt == theBoss.SpawnAt + RULES.BossEntryTime and bullet.State == "Live")
+		assert(#b.Bullets % SQUAD.VolleySize == 0 and b.Bullets[#b.Bullets].FiredAt < theBoss.ReachAt)
+		local ox = BattleState.BugPosition(theBoss, bullet.FiredAt)
+		assert(bullet.OriginX == ox)
+		local tCross, x = crossing(bullet)
+		BattleState.MoveShip(b, x + (if x < 0.5 then offset else -offset), tCross - 0.5)
+		BattleState.Tick(b, tCross + RULES.LatencyGrace + 0.01)
+		if offset == 0 then
+			assert(bullet.State == "Hit" and b.Mood == 70 - RULES.MoodHitPenalty, `{bullet.State}, mood {b.Mood}`)
+		else
+			assert(bullet.State == "Gone" and b.Mood == 70, `{bullet.State}, mood {b.Mood}`)
+		end
+	end
+end
+
+tests["no bullets after the boss dies"] = function()
+	local b = enemyBattle(nil, true)
+	local theBoss = boss(b)
+	clearAllBut(b, theBoss)
+	local t = theBoss.SpawnAt + RULES.VisibleDelay + 0.1
+	for hit = 1, RULES.BossHp do
+		assert(BattleState.Kill(b, theBoss.Id, t + hit * RULES.BaseFireInterval), `boss hit {hit}`)
+	end
+	local diedAt = t + RULES.BossHp * RULES.BaseFireInterval
+	assert(b.BossDiedAt == diedAt and BattleState.Snapshot(b).BossDiedAt == diedAt)
+	local later = b.Bullets[#b.Bullets]
+	assert(later.FiredAt > diedAt, "fixture: a volley after the boss dies")
+	local before = b.Mood -- earlier volleys may have hit the idle ship while the boss was being shot
+	local tCross, x = crossing(later)
+	BattleState.MoveShip(b, x, tCross - 0.5)
+	BattleState.Tick(b, tCross + RULES.LatencyGrace + 0.01)
+	for _, bullet in b.Bullets do
+		if bullet.FiredAt > diedAt then
+			assert(bullet.State == "Gone")
+		end
+	end
+	assert(b.Mood == before)
+end
+
 return tests

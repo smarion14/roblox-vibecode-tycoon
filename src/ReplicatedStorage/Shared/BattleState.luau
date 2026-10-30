@@ -59,6 +59,15 @@ export type SquadRules = {
 	WingShieldRecharge: number,
 	Weapons: { Spread: WeaponRules, Beam: WeaponRules, Missile: WeaponRules },
 	ShieldRole: string,
+	ShardDiveDelay: number,
+	ShardDiveTime: number,
+	ShardSpread: number,
+	LagRadius: number,
+	LagSlowSeconds: number,
+	VolleyInterval: number,
+	VolleySize: number,
+	VolleySpreadDegrees: number,
+	BulletSpeed: number,
 }
 
 export type SquadOptions = {
@@ -73,8 +82,19 @@ export type Weapon = "Ship" | "Spread" | "Beam" | "Missile"
 export type ShipSample = { T: number, X: number, D: number }
 
 export type BugState = "Pending" | "Squashed" | "Hit"
-export type BugKind = "Minion" | "Boss"
+export type BugKind = "Minion" | "Boss" | "Crash" | "Lag" | "Shard"
 export type BattleStatus = "Running" | "Shipped" | "Failed"
+
+-- A boss bullet flies in a straight line from its origin (see BulletPosition).
+export type Bullet = {
+	Id: number,
+	FiredAt: number,
+	OriginX: number,
+	OriginY: number,
+	DirX: number,
+	DirY: number,
+	State: "Live" | "Hit" | "Gone",
+}
 
 export type Bug = {
 	Id: number,
@@ -113,6 +133,8 @@ export type Battle = {
 	Rng: () -> number,
 	LastKillAt: number,
 	Bugs: { Bug },
+	Bullets: { Bullet }, -- boss volleys, empty unless options ask for them
+	BossDiedAt: number?,
 	Status: BattleStatus,
 	Rules: BattleRules,
 }
@@ -135,6 +157,10 @@ export type BattleSnapshot = {
 	Shield: number,
 	RollbackUsed: boolean,
 	Status: BattleStatus,
+	BugCount: number, -- grows when crash reports split
+	SlowUntil: number,
+	BossDiedAt: number?,
+	WingShieldReadyAt: number,
 }
 
 local BASE_MOOD = 70
@@ -198,7 +224,8 @@ function BattleState.BugPosition(bug: Bug, t: number): (number, number)
 
 	if entry < 1 then
 		local eased = easeOut(entry)
-		return lerp(bug.SpawnX, bug.FormX, eased) + 0.12 * bug.Side * math.sin(math.pi * entry), lerp(-0.1, bug.FormY, eased)
+		local startY = if bug.Kind == "Shard" then bug.FormY else -0.1 -- shards burst out where their crash died
+		return lerp(bug.SpawnX, bug.FormX, eased) + 0.12 * bug.Side * math.sin(math.pi * entry), lerp(startY, bug.FormY, eased)
 	end
 	local function swayX(at: number): number
 		return bug.FormX + SWAY * math.sin(2 * math.pi * 0.4 * at + bug.Id)
@@ -209,6 +236,12 @@ function BattleState.BugPosition(bug: Bug, t: number): (number, number)
 	local dive = math.clamp((t - bug.DiveAt) / (bug.ReachAt - bug.DiveAt), 0, 1)
 	local x = lerp(swayX(bug.DiveAt), bug.DiveX, dive) + 0.15 * bug.Side * math.sin(math.pi * dive)
 	return x, lerp(bug.FormY, 1.05, dive ^ 1.4)
+end
+
+-- Where a boss bullet is at time t. Shared by server and client.
+function BattleState.BulletPosition(bullet: Bullet, speed: number, t: number): (number, number)
+	local travel = speed * (t - bullet.FiredAt)
+	return bullet.OriginX + bullet.DirX * travel, bullet.OriginY + bullet.DirY * travel
 end
 
 -- A copy of the rules tuned for an act: more bugs per wave, faster dives, a tougher boss.
@@ -244,10 +277,10 @@ function BattleState.New(
 	local bugs: { Bug } = {}
 	local extraBugs = math.floor((MAX_QUALITY - math.clamp(avgQuality, 0, MAX_QUALITY)) * rules.ExtraBugsPerMissingQuality)
 
-	local function addMinion(wave: number, slot: number, spawnAt: number, diveAt: number, diveTime: number)
+	local function addMinion(wave: number, slot: number, spawnAt: number, diveAt: number, diveTime: number, kind: BugKind)
 		table.insert(bugs, {
 			Id = #bugs + 1,
-			Kind = "Minion",
+			Kind = kind,
 			Wave = wave,
 			Side = if rng() < 0.5 then -1 else 1,
 			SpawnAt = spawnAt,
@@ -263,13 +296,15 @@ function BattleState.New(
 		})
 	end
 
+	local enemyKind: BugKind? = if options then options.EnemyKind else nil
 	local waveStart = startTime + rules.FirstBugDelay
 	for waveIndex, wave in rules.Waves do
 		local count = wave.Count + extraBugs
 		for slot = 1, count do
 			local spawnAt = waveStart + (slot - 1) * wave.Interval
 			local diveAt = math.max(waveStart + wave.DiveDelay + (slot - 1) * wave.DiveSpacing, spawnAt + rules.EntryTime + 0.3)
-			addMinion(waveIndex, slot, spawnAt, diveAt, wave.DiveTime)
+			local kind: BugKind = if enemyKind and slot % 3 == 0 then enemyKind else "Minion"
+			addMinion(waveIndex, slot, spawnAt, diveAt, wave.DiveTime, kind)
 		end
 		waveStart += wave.DiveDelay + (count - 1) * wave.DiveSpacing + rules.WaveGap
 	end
@@ -279,7 +314,7 @@ function BattleState.New(
 	local bossSpawn = waveStart
 	local descendAt = bossSpawn + rules.BossEntryTime + rules.BossHoldTime
 	local bossReach = descendAt + rules.BossTravel
-	table.insert(bugs, {
+	local bossBug: Bug = {
 		Id = #bugs + 1,
 		Kind = "Boss",
 		Wave = bossWave,
@@ -294,14 +329,39 @@ function BattleState.New(
 		ReachAt = bossReach,
 		Hp = rules.BossHp,
 		State = "Pending",
-	})
+	}
+	table.insert(bugs, bossBug)
 	local escortSpawn = bossSpawn + rules.BossMinionInterval
 	local slot = 1
 	-- Escorts all land before the boss does, so the last moment is the boss alone.
 	while escortSpawn + rules.EntryTime + 0.8 + rules.BossMinionDiveTime < bossReach - 1 do
-		addMinion(bossWave, slot, escortSpawn, escortSpawn + rules.EntryTime + 0.8, rules.BossMinionDiveTime)
+		addMinion(bossWave, slot, escortSpawn, escortSpawn + rules.EntryTime + 0.8, rules.BossMinionDiveTime, "Minion")
 		escortSpawn += rules.BossMinionInterval
 		slot += 1
+	end
+
+	-- Boss volleys: a fan of bullets centered straight down, from wherever the boss is when it fires.
+	local bullets: { Bullet } = {}
+	if options and options.BossVolleys then
+		local squad = options.Squad
+		local spread = math.rad(squad.VolleySpreadDegrees)
+		local firedAt = bossSpawn + rules.BossEntryTime
+		while firedAt < bossReach do
+			local originX, originY = BattleState.BugPosition(bossBug, firedAt)
+			for i = 1, squad.VolleySize do
+				local angle = if squad.VolleySize > 1 then spread * ((i - 1) / (squad.VolleySize - 1) - 0.5) else 0
+				table.insert(bullets, {
+					Id = #bullets + 1,
+					FiredAt = firedAt,
+					OriginX = originX,
+					OriginY = originY,
+					DirX = math.sin(angle),
+					DirY = math.cos(angle),
+					State = "Live",
+				})
+			end
+			firedAt += squad.VolleyInterval
+		end
 	end
 
 	return {
@@ -324,6 +384,8 @@ function BattleState.New(
 		Rng = rng,
 		LastKillAt = startTime,
 		Bugs = bugs,
+		Bullets = bullets,
+		BossDiedAt = nil,
 		Status = "Running",
 		Rules = rules,
 	}
@@ -375,14 +437,41 @@ function BattleState.Tick(b: Battle, now: number)
 	if b.Status ~= "Running" then
 		return
 	end
+	local options = b.Options
 	for _, bug in b.Bugs do
 		if bug.State == "Pending" and now > bug.ReachAt + b.Rules.LatencyGrace then
 			bug.State = "Hit"
 			b.Mistakes += 1
-			if bug.Kind == "Minion" then
-				takeHit(b, now, b.Rules.MoodHitPenalty)
-			else
+			if bug.Kind == "Boss" then
 				hurt(b, b.Rules.BossHitPenalty) -- no shield stops the boss
+			elseif
+				bug.Kind == "Lag"
+				and options
+				and math.abs(BattleState.ShipXAt(b, bug.ReachAt) - bug.DiveX) <= options.Squad.LagRadius
+			then
+				b.SlowUntil = math.max(b.SlowUntil, bug.ReachAt + options.Squad.LagSlowSeconds) -- a lag spike on the ship slows it instead
+			else
+				takeHit(b, now, b.Rules.MoodHitPenalty)
+			end
+		end
+	end
+	-- Boss bullets are judged once they cross the ship's row (plus grace), against where the ship was then.
+	-- Bullets fired after the boss died were already marked Gone by Kill.
+	if options then
+		local squad = options.Squad
+		for _, bullet in b.Bullets do
+			if bullet.State ~= "Live" then
+				continue
+			end
+			local tCross = bullet.FiredAt + (squad.ShipY - bullet.OriginY) / (bullet.DirY * squad.BulletSpeed)
+			if now > tCross + b.Rules.LatencyGrace then
+				local x = BattleState.BulletPosition(bullet, squad.BulletSpeed, tCross)
+				if math.abs(x - BattleState.ShipXAt(b, tCross)) <= squad.HitRadius then
+					bullet.State = "Hit"
+					takeHit(b, now, b.Rules.MoodHitPenalty)
+				else
+					bullet.State = "Gone"
+				end
 			end
 		end
 	end
@@ -495,6 +584,38 @@ function BattleState.Kill(b: Battle, bugId: number, now: number, weapon: Weapon?
 	if bug.Hp <= 0 then
 		bug.State = "Squashed"
 		b.Squashed += 1
+		local options = b.Options
+		if bug.Kind == "Boss" then
+			b.BossDiedAt = now
+			for _, bullet in b.Bullets do
+				if bullet.FiredAt > now then
+					bullet.State = "Gone" -- a dead boss fires nothing
+				end
+			end
+		elseif bug.Kind == "Crash" and options then
+			-- The crash report splits into two shards that burst out sideways, then dive.
+			local squad = options.Squad
+			local x, y = BattleState.BugPosition(bug, now)
+			for _, side in { -1, 1 } do
+				local diveAt = now + squad.ShardDiveDelay
+				table.insert(b.Bugs, {
+					Id = #b.Bugs + 1,
+					Kind = "Shard",
+					Wave = bug.Wave,
+					Side = side,
+					SpawnAt = now,
+					EntryTime = 0.2,
+					SpawnX = x,
+					FormX = x + side * squad.ShardSpread,
+					FormY = y,
+					DiveAt = diveAt,
+					DiveX = 0.1 + b.Rng() * 0.8,
+					ReachAt = diveAt + squad.ShardDiveTime,
+					Hp = 1,
+					State = "Pending",
+				})
+			end
+		end
 	end
 	settle(b)
 	return true
@@ -533,6 +654,10 @@ function BattleState.Snapshot(b: Battle): BattleSnapshot
 		Shield = b.Shield,
 		RollbackUsed = b.RollbackUsed,
 		Status = b.Status,
+		BugCount = #b.Bugs,
+		SlowUntil = b.SlowUntil,
+		BossDiedAt = b.BossDiedAt,
+		WingShieldReadyAt = b.WingShieldReadyAt,
 	}
 end
 

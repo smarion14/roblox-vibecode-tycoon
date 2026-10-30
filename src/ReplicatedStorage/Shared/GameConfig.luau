@@ -230,6 +230,18 @@ GameConfig.SQUAD = {
 		Missile = { Role = "PromptTokens", Interval = 1.2, PerShot = 1 },
 	},
 	ShieldRole = "DatabaseTables",
+	-- Crash reports split into two shards ShardSpread apart that dive after ShardDiveDelay.
+	ShardDiveDelay = 0.8,
+	ShardDiveTime = 2.6,
+	ShardSpread = 0.06,
+	-- A lag spike landing within LagRadius of the ship halves its speed for LagSlowSeconds instead of costing mood.
+	LagRadius = 0.08,
+	LagSlowSeconds = 2,
+	-- Boss volleys: VolleySize bullets fanned across VolleySpreadDegrees every VolleyInterval seconds.
+	VolleyInterval = 3,
+	VolleySize = 5,
+	VolleySpreadDegrees = 60,
+	BulletSpeed = 0.35,
 }
 
 -- Published cutscene animation ids (see docs/animations-publish-checklist.md). 0 = not published yet, and
