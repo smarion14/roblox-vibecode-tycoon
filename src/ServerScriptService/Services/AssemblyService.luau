@@ -157,6 +157,7 @@ function AssemblyService.Init() end
 
 function AssemblyService.Start()
 	StartupDataModule.OnPlayerLoaded(AssemblyService.RefreshStationPrompts)
+	PlotService.OnUnitBuilt(AssemblyService.RefreshStationPrompts)
 	PlotService.OnPromptTriggered("JobPhone", onJobPhone)
 	RemoteManager.Listen(RemoteNames.AcceptJob, onAcceptJob)
 end
