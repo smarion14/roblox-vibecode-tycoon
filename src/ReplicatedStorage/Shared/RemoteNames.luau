@@ -21,6 +21,10 @@ local RemoteNames = {
 	CutsceneDone = "CutsceneDone",
 	SetStartupName = "SetStartupName",
 	NameResult = "NameResult",
+	DecorPlace = "DecorPlace",
+	DecorMove = "DecorMove",
+	DecorSell = "DecorSell",
+	DecorResult = "DecorResult",
 }
 
 return RemoteNames

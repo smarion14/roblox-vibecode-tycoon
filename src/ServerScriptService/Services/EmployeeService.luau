@@ -11,6 +11,7 @@ local StartupDataModule = require(ServerScriptService:WaitForChild("Components")
 local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 local Workforce = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Workforce"))
+local Decor = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Decor"))
 
 -- Roblox's default R15 sit, used until DeskType is published.
 local SIT_ANIMATION_ID = 2506281703
@@ -25,10 +26,6 @@ local rng = Random.new()
 local progressOf: { [Player]: { [string]: number } } = {}
 -- The DeskType track of each seated employee, paused while the desk has nothing to build.
 local deskTracks: { [BasePart]: AnimationTrack } = setmetatable({}, { __mode = "k" }) :: any
--- Task 4 swaps this for the decor perks.
-local function currentBonuses(_player: Player): Workforce.Bonuses
-	return { Speed = 0, GradeAChance = 0 }
-end
 
 local function friendIds(player: Player): { number }
 	local cached = friendCache[player]
@@ -200,7 +197,8 @@ local function tickPlayer(player: Player, dt: number)
 
 	local progress = progressOf[player] or {}
 	progressOf[player] = progress
-	local bonuses = currentBonuses(player)
+	-- Perks only count while placed; DecorService keeps the saved layout valid (one of each perk).
+	local bonuses: Workforce.Bonuses = Decor.Perks(save.Decor, GameConfig.DECOR)
 	local buildSeconds = Workforce.BuildSeconds(GameConfig.WORKFORCE.BuildSeconds, bonuses)
 	local finished = Workforce.Step(progress, needs, dt, buildSeconds)
 	local built: { [string]: boolean } = {}

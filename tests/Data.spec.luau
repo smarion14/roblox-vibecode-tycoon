@@ -78,7 +78,7 @@ tests["remote names map to themselves"] = function()
 		assert(key == value, `{key} maps to {value}`)
 		count += 1
 	end
-	assert(count == 20, `expected 20 remote names, got {count}`)
+	assert(count == 24, `expected 24 remote names, got {count}`)
 end
 
 tests["intro contains the exact doubter line"] = function()

@@ -1,6 +1,7 @@
 --!strict
 -- Act 2: the player's own office downtown. Upgraded stations along the back wall, an employee desk in front of
--- each one, a glass meeting room with the deploy wall screen, a reception desk with the shop computer and phone.
+-- each one, a glass meeting room with the deploy wall screen in the back-right corner, a reception desk with the
+-- shop computer and phone by the door, and an empty decorate zone across the front half.
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -32,6 +33,11 @@ local COLOR_SERVER = Props.COLOR_SERVER
 local COLOR_GLASS = Color3.fromRGB(170, 210, 230)
 local COLOR_NOTE = Color3.fromRGB(255, 230, 110)
 local COLOR_CARPET = Color3.fromRGB(52, 46, 70)
+
+-- Zones in unit-local studs (half = 32): stations along the back wall at z = -29, employee desks in front of them,
+-- the meeting room from x = 16 to the right wall, the empty decorate zone (GameConfig.DECOR_ZONE) across the front.
+local STATION_X = { -26, -15, -4, 7 }
+local DESK_Z = -18
 
 local OfficeLayout = {}
 
@@ -152,20 +158,27 @@ local function buildEmployeeDesk(contents: Instance, base: CFrame, role: string)
 	paper.Parent = note
 end
 
--- Meeting room on the right: glass partitions, a table, and the deploy terminal as a wall screen.
+-- Meeting room in the back-right corner (x 16 to the right wall, z -10 to the back wall): glass partitions with a
+-- doorway facing the floor, a table, and the deploy terminal as a wall screen.
 local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number): Part
-	local left, front, back = 10, 16, -4
+	local left, front = 16, -10
+	local right, back = half - 0.5, -half + 0.5 -- inner faces of the right and back walls
+	local doorWidth = 4
+	local doorX = (left + right) / 2
 	local function glassWall(size: Vector3, cframe: CFrame)
 		local pane = part(contents, "GlassPartition", size, cframe, COLOR_GLASS, Enum.Material.Glass)
 		pane.Transparency = 0.8
 	end
-	-- Side partition with a doorway from z = 4 to 8.
-	glassWall(Vector3.new(0.2, 9, 8), origin * CFrame.new(left, 4.5, back + 4))
-	glassWall(Vector3.new(0.2, 9, 8), origin * CFrame.new(left, 4.5, front - 4))
-	glassWall(Vector3.new(half - left, 9, 0.2), origin * CFrame.new((left + half) / 2, 4.5, back))
-	part(contents, "MeetingCarpet", Vector3.new(half - left - 1, 0.05, front - back), origin * CFrame.new((left + half) / 2, 0.03, (front + back) / 2), COLOR_CARPET, Enum.Material.Fabric).CanCollide = false
+	glassWall(Vector3.new(0.2, 9, front - back), origin * CFrame.new(left, 4.5, (front + back) / 2))
+	-- Front partition, split around the doorway.
+	local leftSegment = doorX - doorWidth / 2 - left
+	local rightSegment = right - (doorX + doorWidth / 2)
+	glassWall(Vector3.new(leftSegment, 9, 0.2), origin * CFrame.new(left + leftSegment / 2, 4.5, front))
+	glassWall(Vector3.new(rightSegment, 9, 0.2), origin * CFrame.new(right - rightSegment / 2, 4.5, front))
+	part(contents, "MeetingCarpet", Vector3.new(right - left - 0.2, 0.05, front - back), origin * CFrame.new((left + right) / 2, 0.03, (front + back) / 2), COLOR_CARPET, Enum.Material.Fabric).CanCollide = false
 
-	local tableBase = origin * CFrame.new(15, 0, 6)
+	local tableZ = (front + back) / 2
+	local tableBase = origin * CFrame.new(22.5, 0, tableZ)
 	part(contents, "MeetingTable", Vector3.new(4, 0.3, 7), tableBase * CFrame.new(0, 3, 0), COLOR_DESK, Enum.Material.Wood)
 	part(contents, "MeetingTableBase", Vector3.new(1, 2.85, 4), tableBase * CFrame.new(0, 1.43, 0), COLOR_BEZEL, Enum.Material.Metal)
 	for _, z in { -2.2, 0, 2.2 } do
@@ -174,7 +187,7 @@ local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number
 		end
 	end
 
-	local screen = monitor(contents, "DeployTerminal", Vector2.new(7, 3.4), origin * CFrame.new(half - 0.8, 6, 6) * CFrame.Angles(0, math.rad(-90), 0), "DEPLOY", COLOR_PINK)
+	local screen = monitor(contents, "DeployTerminal", Vector2.new(7, 3.4), origin * CFrame.new(half - 0.8, 6, tableZ) * CFrame.Angles(0, math.rad(-90), 0), "DEPLOY", COLOR_PINK)
 	local light = part(contents, "MeetingLight", Vector3.new(5, 0.3, 1), tableBase * CFrame.new(0, 11, 0), COLOR_AMBER, Enum.Material.Neon)
 	light.CanCollide = false
 	nightLight(light, COLOR_AMBER, 16)
@@ -192,16 +205,8 @@ local function buildReception(contents: Instance, base: CFrame): (Part, Part)
 	return computer, phone
 end
 
--- Coffee machine, logo wall, plants and pendant lights.
+-- Logo wall, plants, the work-zone carpet and pendant lights. The coffee machine is a buyable decor perk now.
 local function buildDecor(contents: Instance, origin: CFrame, half: number)
-	local counter = origin * CFrame.new(-half + 1.8, 0, -4)
-	part(contents, "CoffeeCounter", Vector3.new(2.6, 3.2, 5), counter * CFrame.new(0, 1.6, 0), COLOR_DESK, Enum.Material.Wood)
-	part(contents, "CoffeeMachine", Vector3.new(1.6, 2, 1.4), counter * CFrame.new(0, 4.2, -1), COLOR_SERVER, Enum.Material.Metal)
-	led(contents, counter * CFrame.new(0.82, 4.8, -1), Color3.fromRGB(120, 255, 120))
-	for index = 1, 3 do
-		cylinder(contents, "Mug", 0.5, 0.45, counter * CFrame.new(0, 3.45, 0.4 + index * 0.6) * CFrame.Angles(0, 0, math.rad(90)), if index == 2 then COLOR_PINK else Color3.fromRGB(235, 235, 240), Enum.Material.SmoothPlastic)
-	end
-
 	-- Logo wall on the left: a neon brace mark on a dark panel.
 	local logo = part(contents, "LogoWall", Vector3.new(0.3, 5, 9), origin * CFrame.new(-half + 0.7, 7, 8), Color3.fromRGB(28, 20, 44), Enum.Material.SmoothPlastic)
 	local gui = Instance.new("SurfaceGui")
@@ -221,15 +226,38 @@ local function buildDecor(contents: Instance, origin: CFrame, half: number)
 
 	plant(contents, origin * CFrame.new(-half + 2.5, 0, half - 2.5))
 	plant(contents, origin * CFrame.new(half - 2.5, 0, half - 2.5))
-	plant(contents, origin * CFrame.new(8, 0, -6))
-	plant(contents, origin * CFrame.new(-8, 0, -6))
+	plant(contents, origin * CFrame.new(-half + 2.5, 0, -8))
+	plant(contents, origin * CFrame.new(13.5, 0, -8))
 
-	part(contents, "OfficeCarpet", Vector3.new(half * 2 - 2, 0.04, 16), origin * CFrame.new(0, 0.02, -12), COLOR_CARPET, Enum.Material.Fabric).CanCollide = false
-	for _, x in { -12, 0 } do
-		local pendant = part(contents, "PendantLight", Vector3.new(6, 0.3, 1), origin * CFrame.new(x, 11, -10), COLOR_CYAN, Enum.Material.Neon)
+	-- Work-zone carpet from the left wall to the meeting room, back wall to z = -10.
+	local carpetLeft, carpetRight = -half + 0.5, 16
+	local carpetBack, carpetFront = -half + 0.5, -10
+	part(contents, "OfficeCarpet", Vector3.new(carpetRight - carpetLeft, 0.04, carpetFront - carpetBack), origin * CFrame.new((carpetLeft + carpetRight) / 2, 0.02, (carpetBack + carpetFront) / 2), COLOR_CARPET, Enum.Material.Fabric).CanCollide = false
+	for _, x in { -20, -1 } do
+		local pendant = part(contents, "PendantLight", Vector3.new(6, 0.3, 1), origin * CFrame.new(x, 11, -20), COLOR_CYAN, Enum.Material.Neon)
 		pendant.CanCollide = false
 		nightLight(pendant, COLOR_CYAN, 20)
 	end
+end
+
+-- The decorate zone stays empty; a faint neon border on the floor shows where decor goes.
+local function buildDecorZoneOutline(contents: Instance, origin: CFrame)
+	local zone = GameConfig.DECOR_ZONE
+	local x0, z0 = zone.OffsetX, zone.OffsetZ
+	local x1, z1 = x0 + zone.CellsX * zone.CellSize, z0 + zone.CellsZ * zone.CellSize
+	local thickness = 0.2
+	local function strip(size: Vector3, x: number, z: number)
+		local line = part(contents, "DecorZoneOutline", size, origin * CFrame.new(x, 0.025, z), COLOR_CYAN, Enum.Material.Neon)
+		line.Transparency = 0.7
+		line.CanCollide = false
+		line.CanQuery = false
+		line.CanTouch = false
+		line.CastShadow = false
+	end
+	strip(Vector3.new(x1 - x0 + thickness, 0.05, thickness), (x0 + x1) / 2, z0)
+	strip(Vector3.new(x1 - x0 + thickness, 0.05, thickness), (x0 + x1) / 2, z1)
+	strip(Vector3.new(thickness, 0.05, z1 - z0), x0, (z0 + z1) / 2)
+	strip(Vector3.new(thickness, 0.05, z1 - z0), x1, (z0 + z1) / 2)
 end
 
 -- Cutscene markers for Act2Intro (names match Cutscenes.OFFICE_MARKERS).
@@ -240,12 +268,12 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	local function look(name: string, from: Vector3, target: Vector3)
 		marker(contents, name, CFrame.lookAt(from, target))
 	end
-	look("CamOutside", at(0, 8, 34), at(0, 4, 10))
-	look("CamInside", at(0, 7, 18), at(0, 3, -10))
-	look("CamDesks", at(0, 9, 2), at(0, 3, -12))
-	look("CamSign", at(-6, 5, 12), at(-6, 4.5, 19))
-	look("PlayerDoor", at(0, 0, 21), at(0, 0, 0))
-	look("PlayerCenter", at(0, 0, 4), at(0, 0, -10))
+	look("CamOutside", at(0, 8, 40), at(0, 4, 14))
+	look("CamInside", at(0, 7, 30), at(0, 3, -16))
+	look("CamDesks", at(0, 9, -6), at(0, 3, -20))
+	look("CamSign", at(-24, 5, 22), at(-24, 4.5, 28))
+	look("PlayerDoor", at(0, 0, 31), at(0, 0, 0))
+	look("PlayerCenter", at(0, 0, 6), at(0, 0, -10))
 end
 
 function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
@@ -257,27 +285,28 @@ function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
 		PromptTokens = buildAiCabinet,
 	}
 	for slot, component in GameConfig.COMPONENTS do
-		local x = -half + 6 + (slot - 1) * ((half * 2 - 12) / 3)
+		local x = STATION_X[slot]
 		local screen = stationBuilders[component](contents, back * CFrame.new(x, 0, 0))
 		screen:SetAttribute("Component", component)
 		interactable(screen, "Station", "Build", GameConfig.STATION_NAMES[component])
-		buildEmployeeDesk(contents, origin * CFrame.new(x, 0, -9), component)
+		buildEmployeeDesk(contents, origin * CFrame.new(x, 0, DESK_Z), component)
 	end
 
 	local deploy = buildMeetingRoom(contents, origin, half)
 	interactable(deploy, "DeployTerminal", "Ship it", "Deploy Terminal")
 
-	local computer, phone = buildReception(contents, origin * CFrame.new(-14, 0, 10) * CFrame.Angles(0, math.rad(90), 0))
+	local computer, phone = buildReception(contents, origin * CFrame.new(-26, 0, 20) * CFrame.Angles(0, math.rad(90), 0))
 	interactable(computer, "ShopComputer", "Browse", "Computer")
 	interactable(phone, "JobPhone", "Check jobs", "Phone")
 
 	-- The startup's poster by the door; interacting renames the startup.
-	local sign = part(contents, "StartupSign", Vector3.new(4, 3, 0.3), origin * CFrame.new(-6, 4.5, 19) * CFrame.Angles(0, math.pi, 0), COLOR_SCREEN, Enum.Material.SmoothPlastic)
+	local sign = part(contents, "StartupSign", Vector3.new(4, 3, 0.3), origin * CFrame.new(-24, 4.5, 28) * CFrame.Angles(0, math.pi, 0), COLOR_SCREEN, Enum.Material.SmoothPlastic)
 	screenLabel(sign, "YOUR STARTUP\nHERE", COLOR_PINK)
-	part(contents, "StartupSignStand", Vector3.new(0.3, 3, 0.3), origin * CFrame.new(-6, 1.5, 19.2), COLOR_BEZEL, Enum.Material.Metal)
+	part(contents, "StartupSignStand", Vector3.new(0.3, 3, 0.3), origin * CFrame.new(-24, 1.5, 28.2), COLOR_BEZEL, Enum.Material.Metal)
 	interactable(sign, "StartupSign", "Rename", "Startup Sign")
 
 	buildDecor(contents, origin, half)
+	buildDecorZoneOutline(contents, origin)
 	buildMarkers(contents, origin)
 end
 

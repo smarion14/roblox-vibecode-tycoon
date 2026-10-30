@@ -13,7 +13,7 @@ local Props = require(World:WaitForChild("Props"))
 local HomelabLayout = require(World:WaitForChild("HomelabLayout"))
 local OfficeLayout = require(World:WaitForChild("OfficeLayout"))
 
-local UNIT_SIZE = 44
+local UNIT_SIZE = 64
 local UNIT_GAP = 8
 local WALL_HEIGHT = 16
 local UNITS_PER_ROW = 3
@@ -92,7 +92,7 @@ local function buildUnit(floor: Folder, index: number, origin: CFrame): Model
 	signText.Text = ""
 	signText.Parent = signGui
 
-	local spawnPad = part(unit, "UnitSpawn", Vector3.new(4, 0.2, 4), origin * CFrame.new(4, 0.1, 6), COLOR_FLOOR, Enum.Material.SmoothPlastic)
+	local spawnPad = part(unit, "UnitSpawn", Vector3.new(4, 0.2, 4), origin * CFrame.new(0, 0.1, 30), COLOR_FLOOR, Enum.Material.SmoothPlastic)
 	spawnPad.Transparency = 1
 	spawnPad.CanCollide = false
 	CollectionService:AddTag(spawnPad, "UnitSpawn")
