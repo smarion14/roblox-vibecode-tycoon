@@ -53,7 +53,8 @@ local NIGHT: Look = {
 
 local UPDATE_SECONDS = 0.1
 local LIGHT_BRIGHTNESS = 2
-local OFF_COLOR_SCALE = 0.25 -- unlit neon keeps a dim tint so the fixtures still read as fixtures
+local OFF_COLOR_SCALE = 0.25
+local BLINK_CHANCE = 0.12 -- per update, each homelab status LED flickers off with this chance -- unlit neon keeps a dim tint so the fixtures still read as fixtures
 
 local LightingController = {}
 
@@ -107,7 +108,17 @@ local function apply(daylight: number)
 	end
 end
 
+-- Homelab status LEDs: mostly on, with random flickers like real drive and network activity.
+local function blinkLeds()
+	for _, led in CollectionService:GetTagged("BlinkLed") do
+		if led:IsA("BasePart") then
+			led.Transparency = if math.random() < BLINK_CHANCE then 0.85 else 0
+		end
+	end
+end
+
 local function step()
+	blinkLeds()
 	local clock = DayCycle.ClockAt(Workspace:GetServerTimeNow(), GameConfig.DAY_CYCLE)
 	Lighting.ClockTime = clock
 	apply(DayCycle.Daylight(clock))
