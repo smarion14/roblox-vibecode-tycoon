@@ -92,4 +92,18 @@ tests["lock claims"] = function()
 	assert(SaveSchema.TryClaimLock(mine, "job-a", 1000, 120) == true)
 end
 
+tests["act 2 fields default"] = function()
+	local save = SaveSchema.Default(CATALOG)
+	assert(save.StartupName == nil and save.ActDeploys == 0 and save.ActGoal == 0)
+end
+
+tests["act 2 fields sanitized"] = function()
+	assert(SaveSchema.Sanitize({ StartupName = 42 }, CATALOG).StartupName == nil)
+	assert(SaveSchema.Sanitize({ StartupName = string.rep("x", 40) }, CATALOG).StartupName == nil)
+	assert(SaveSchema.Sanitize({ StartupName = "Neon Labs" }, CATALOG).StartupName == "Neon Labs")
+	assert(SaveSchema.Sanitize({ ActDeploys = -3 }, CATALOG).ActDeploys == 0)
+	assert(SaveSchema.Sanitize({ ActGoal = 0 / 0 }, CATALOG).ActGoal == 0)
+	assert(SaveSchema.Sanitize({ ActGoal = 3.1 }, CATALOG).ActGoal == 3.1)
+end
+
 return tests

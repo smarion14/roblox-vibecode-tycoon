@@ -19,6 +19,9 @@ export type PlayerSave = {
 	Hires: { [string]: boolean },
 	StoryFlags: { [string]: boolean },
 	ActiveJobId: string?,
+	StartupName: string?,
+	ActDeploys: number,
+	ActGoal: number,
 	LockJobId: string?,
 	LockTime: number,
 }
@@ -34,6 +37,7 @@ export type SaveCatalog = {
 export type LoadDecision = "Fail" | "UseDefault" | "UseRaw"
 
 local MAX_ACT = 3
+local MAX_NAME_CHARS = 24
 local GRADES = { "S", "A", "B", "C" }
 
 local SaveSchema = {}
@@ -83,6 +87,9 @@ function SaveSchema.Default(catalog: SaveCatalog): PlayerSave
 		Hires = {},
 		StoryFlags = {},
 		ActiveJobId = nil,
+		StartupName = nil,
+		ActDeploys = 0,
+		ActGoal = 0,
 		LockJobId = nil,
 		LockTime = 0,
 	}
@@ -131,6 +138,15 @@ function SaveSchema.Sanitize(raw: any, catalog: SaveCatalog): PlayerSave
 
 	if type(raw.ActiveJobId) == "string" and table.find(catalog.ClientIds, raw.ActiveJobId) then
 		save.ActiveJobId = raw.ActiveJobId
+	end
+
+	local nameLength = if type(raw.StartupName) == "string" then utf8.len(raw.StartupName) else nil
+	if nameLength and nameLength >= 1 and nameLength <= MAX_NAME_CHARS then
+		save.StartupName = raw.StartupName
+	end
+	save.ActDeploys = wholeNonNegative(raw.ActDeploys)
+	if isFinite(raw.ActGoal) then
+		save.ActGoal = math.max(0, raw.ActGoal)
 	end
 
 	if type(raw.LockJobId) == "string" then
