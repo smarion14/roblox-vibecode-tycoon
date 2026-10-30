@@ -6,14 +6,28 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
+local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
 
-local GRADE_POPUP_SECONDS = 1.5
+local GRADE_POPUP_SECONDS = 1.8
+local LOW_TIME_SECONDS = 3
+local PANEL_REST = UDim2.new(0.5, 0, 1, -40)
+local PANEL_HIDDEN = UDim2.new(0.5, 0, 1, 120)
+
+-- Grade reveal styling: colour, banner text (nil = no banner) and how many sparks fly.
+local GRADE_STYLE: { [string]: { Color: Color3, Banner: string?, Sparks: number } } = {
+	S = { Color = Theme.MOOD, Banner = "S RANK! FLAWLESS", Sparks = 18 },
+	A = { Color = Theme.TYPED, Banner = "A RANK!", Sparks = 10 },
+	B = { Color = Theme.ACCENT, Banner = nil, Sparks = 4 },
+	C = { Color = Theme.MUTED, Banner = nil, Sparks = 0 },
+}
+local STREAK_CALLOUTS: { [number]: string } = { [2] = "DOUBLE CLEAN!", [3] = "PERFECT RUN!" }
 
 local BurstController = {}
 
@@ -31,6 +45,9 @@ local gradeLabel: TextLabel
 local field: TypingInput.TypingField? = nil
 local currentIndex = 0
 local timerTween: Tween? = nil
+local fx: Frame
+local pips: { Frame } = {}
+local cleanStreak = 0
 
 local function closeField()
 	if field then
@@ -76,14 +93,40 @@ local function onPrompt(index: any, text: any, nextText: any, timeLeft: any, tim
 
 		maxSeconds = 1
 		countdown = RunService.RenderStepped:Connect(function()
-			secondsLabel.Text = string.format("%.1fs", math.max(deadline - os.clock(), 0))
+			local remaining = math.max(deadline - os.clock(), 0)
+			secondsLabel.Text = string.format("%.1fs", remaining)
+			local low = remaining > 0 and remaining < LOW_TIME_SECONDS
+			timerFill.BackgroundColor3 = if low then Theme.BUG else Theme.ACCENT
+			secondsLabel.TextColor3 = if low then Theme.BUG else Theme.ACCENT
+			secondsLabel.TextSize = if low then 14 + 4 * math.abs(math.sin(os.clock() * 10)) else 14
 		end)
+
+		-- Entrance: the panel springs up from below the screen.
+		cleanStreak = 0
+		for _, pip in pips do
+			pip.BackgroundColor3 = Theme.PANEL
+		end
+		panel.Position = PANEL_HIDDEN
 		gui.Enabled = true
+		TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = PANEL_REST,
+		}):Play()
 	end
 
 	startTimer(if type(timeLeft) == "number" then math.max(timeLeft, 0) else 0)
 	if type(timeDelta) == "number" and math.abs(timeDelta) > 0.01 then
 		local gained = timeDelta > 0
+		local pip = pips[index - 1]
+		if pip then
+			pip.BackgroundColor3 = if gained then Theme.TYPED else Theme.BUG
+			Juice.Pop(pip, 0.8)
+		end
+		cleanStreak = if gained then cleanStreak + 1 else 0
+		local callout = STREAK_CALLOUTS[cleanStreak]
+		if callout then
+			Sfx.Play("ComboCallout")
+			Juice.Banner(fx, callout, Theme.TYPED, 40)
+		end
 		local deltaText = if gained then string.format("+%gs", timeDelta) else string.format("%gs", timeDelta)
 		Juice.FloatText(timerBar, UDim2.fromScale(1, -1), deltaText, if gained then Theme.TYPED else Theme.BUG)
 		if gained then
@@ -100,18 +143,65 @@ local function onPrompt(index: any, text: any, nextText: any, timeLeft: any, tim
 	end
 end
 
-local function onFinished(grade: any, accuracy: any)
+local function onFinished(grade: any, accuracy: any, component: any)
 	closeField()
 	if timerTween then
 		timerTween:Cancel()
 	end
+	local gradeText = tostring(grade)
+	local style = GRADE_STYLE[gradeText] or GRADE_STYLE.C
 	local percent = if type(accuracy) == "number" then math.floor(accuracy * 100 + 0.5) else 0
-	gradeLabel.Text = `{tostring(grade)}   {percent}%`
+
+	-- The last prompt's pip reflects the overall result (no time change is sent after the final prompt).
+	local lastPip = pips[#pips]
+	if lastPip then
+		lastPip.BackgroundColor3 = if gradeText == "S" or gradeText == "A" then Theme.TYPED else Theme.MOOD
+		Juice.Pop(lastPip, 0.8)
+	end
+
+	-- Grade slams in oversized and tilted, then settles.
+	gradeLabel.Text = `{gradeText}   {percent}%`
+	gradeLabel.TextColor3 = style.Color
 	gradeLabel.Visible = true
+	gradeLabel.Rotation = math.random(-12, 12)
+	local scale = gradeLabel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+	scale.Parent = gradeLabel
+	scale.Scale = 2.6
+	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(gradeLabel, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+
+	if style.Banner then
+		Sfx.Play("ComboCallout")
+		Juice.Banner(fx, style.Banner, style.Color, 46)
+	elseif gradeText == "B" then
+		Sfx.Play("PromptClean")
+	else
+		Sfx.Play("KeyWrong")
+	end
+	for _ = 1, style.Sparks do
+		Juice.Spark(panel, UDim2.fromScale(math.random(), 1), style.Color)
+	end
+
+	-- What you built, floating up toward the HUD.
+	local stationName = if type(component) == "string" then GameConfig.STATION_NAMES[component] else nil
+	if stationName then
+		Juice.FloatText(fx, UDim2.new(0.5, 0, 1, -230), `+1 {stationName} ({gradeText})`, style.Color)
+	end
+
 	task.delay(GRADE_POPUP_SECONDS, function()
-		if not field then
-			gui.Enabled = false
+		if field then
+			return
 		end
+		local exit = TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+			Position = PANEL_HIDDEN,
+		})
+		exit.Completed:Once(function()
+			if not field then
+				gui.Enabled = false
+				panel.Position = PANEL_REST
+			end
+		end)
+		exit:Play()
 	end)
 end
 
@@ -119,13 +209,46 @@ function BurstController.Init()
 	gui = Theme.Screen("Burst", 4)
 	gui.Enabled = false
 
-	panel = Theme.Panel(gui, UDim2.fromOffset(640, 0), UDim2.new(0.5, 0, 1, -40))
+	fx = Instance.new("Frame")
+	fx.BackgroundTransparency = 1
+	fx.Size = UDim2.fromScale(1, 1)
+	fx.ZIndex = 10
+	fx.Parent = gui
+
+	panel = Theme.Panel(gui, UDim2.fromOffset(640, 0), PANEL_REST)
 	panel.AnchorPoint = Vector2.new(0.5, 1)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	Theme.List(panel, 8)
 
 	header = Theme.Text(panel, "", 14, Theme.MUTED)
 	header.LayoutOrder = -3
+
+	-- One pip per prompt: green for clean, red for sloppy.
+	local pipRow = Instance.new("Frame")
+	pipRow.BackgroundTransparency = 1
+	pipRow.AnchorPoint = Vector2.new(0.5, 0)
+	pipRow.Position = UDim2.fromScale(0.5, 0)
+	pipRow.Size = UDim2.fromOffset(120, 16)
+	pipRow.Parent = header
+	local pipLayout = Instance.new("UIListLayout")
+	pipLayout.FillDirection = Enum.FillDirection.Horizontal
+	pipLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	pipLayout.Padding = UDim.new(0, 8)
+	pipLayout.Parent = pipRow
+	for index = 1, GameConfig.BURST_PROMPT_COUNT do
+		local pip = Instance.new("Frame")
+		pip.Size = UDim2.fromOffset(14, 14)
+		pip.BackgroundColor3 = Theme.PANEL
+		pip.LayoutOrder = index
+		pip.Parent = pipRow
+		local round = Instance.new("UICorner")
+		round.CornerRadius = UDim.new(0.5, 0)
+		round.Parent = pip
+		local ring = Instance.new("UIStroke")
+		ring.Color = Theme.BORDER
+		ring.Parent = pip
+		table.insert(pips, pip)
+	end
 
 	secondsLabel = Theme.Text(header, "", 14, Theme.ACCENT)
 	secondsLabel.AnchorPoint = Vector2.new(1, 0)
