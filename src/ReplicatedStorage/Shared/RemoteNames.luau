@@ -10,6 +10,7 @@ local RemoteNames = {
 	BurstFinished = "BurstFinished",
 	BattleStarted = "BattleStarted",
 	BattleSquash = "BattleSquash",
+	BattleShip = "BattleShip",
 	BattleUpdate = "BattleUpdate",
 	BattleEnded = "BattleEnded",
 	Purchase = "Purchase",
