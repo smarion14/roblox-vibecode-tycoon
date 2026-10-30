@@ -48,6 +48,8 @@ export type Battle = {
 	Combo: number,
 	MaxCombo: number,
 	Squashed: number,
+	Successes: number,
+	Mistakes: number,
 	Bugs: { Bug },
 	Status: BattleStatus,
 	Rules: BattleRules,
@@ -58,6 +60,8 @@ export type BattleResult = {
 	MoodRatio: number,
 	Accuracy: number,
 	MaxCombo: number,
+	Successes: number, -- squashes plus boss word hits
+	Mistakes: number, -- missed squashes plus bugs that reached your code
 }
 
 export type BattleSnapshot = {
@@ -171,6 +175,8 @@ function BattleState.New(
 		Combo = 0,
 		MaxCombo = 0,
 		Squashed = 0,
+		Successes = 0,
+		Mistakes = 0,
 		Bugs = bugs,
 		Status = "Running",
 		Rules = rules,
@@ -185,6 +191,7 @@ function BattleState.Tick(b: Battle, now: number)
 	for _, bug in b.Bugs do
 		if bug.State == "Pending" and now > bug.ReachAt + b.Rules.LatencyGrace then
 			bug.State = "Hit"
+			b.Mistakes += 1
 			b.Mood -= if bug.Kind == "Boss" then b.Rules.BossHitPenalty else b.Rules.MoodHitPenalty
 			b.Combo = 0
 		end
@@ -219,6 +226,7 @@ function BattleState.Squash(b: Battle, word: string, now: number): boolean
 			if nextWord == wanted and reachable(bug, wanted, now, rules) then
 				bug.Hp -= 1
 				bug.LastHitAt = now
+				b.Successes += 1
 				bumpCombo(b)
 				if bug.Hp <= 0 then
 					bug.State = "Squashed"
@@ -234,6 +242,7 @@ function BattleState.Squash(b: Battle, word: string, now: number): boolean
 		if bug.Kind == "Minion" and bug.Word == wanted and reachable(bug, wanted, now, rules) then
 			bug.State = "Squashed"
 			b.Squashed += 1
+			b.Successes += 1
 			bumpCombo(b)
 			settle(b)
 			return true
@@ -241,6 +250,7 @@ function BattleState.Squash(b: Battle, word: string, now: number): boolean
 	end
 
 	b.Combo = 0
+	b.Mistakes += 1
 	b.Mood -= rules.MissedSquashPenalty
 	settle(b)
 	return false
@@ -252,6 +262,8 @@ function BattleState.Result(b: Battle): BattleResult
 		MoodRatio = math.max(b.Mood, 0) / MAX_MOOD,
 		Accuracy = b.Squashed / math.max(#b.Bugs, 1),
 		MaxCombo = b.MaxCombo,
+		Successes = b.Successes,
+		Mistakes = b.Mistakes,
 	}
 end
 

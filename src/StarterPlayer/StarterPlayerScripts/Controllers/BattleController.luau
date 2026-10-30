@@ -15,6 +15,7 @@ local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForC
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
 local Music = require(UI:WaitForChild("Music"))
+local ResultsScreen = require(UI:WaitForChild("ResultsScreen"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
@@ -37,7 +38,7 @@ type BugView = {
 	Shown: boolean,
 }
 
-local RESULT_SECONDS = 3
+local RESULTS_DELAY = 1.1 -- let the SHIPPED banner land before the results card
 local BUG_LANES = 5
 local DANGER_TRAVEL = 0.75 -- past this share of the path a bug starts pulsing as a warning
 local PRAISE_CHANCE = 0.45
@@ -101,7 +102,6 @@ local progressFill: Frame
 local instructionLabel: TextLabel
 local inputHolder: Frame
 local bugLayer: Frame
-local resultLabel: TextLabel
 
 local catcher: TypingInput.WordCatcher? = nil
 local mode: TypingInput.Mode = "Keyboard"
@@ -457,7 +457,6 @@ local function onStarted(info: any)
 	squashedOnce = false
 	waveLabel.Text = "GET READY"
 	progressFill.Size = UDim2.fromScale(0, 1)
-	resultLabel.Visible = false
 	mode = TypingInput.DetectMode()
 	instructionLabel.Text = if mode == "Touch" then INSTRUCTION_TOUCH else INSTRUCTION_KEYBOARD
 
@@ -585,7 +584,7 @@ local function onUpdate(snapshot: any)
 	end
 end
 
-local function onEnded(result: any, payout: any)
+local function onEnded(result: any, payout: any, grade: any)
 	clearBattle()
 	Music.Stop(2)
 	local shipped = type(result) == "table" and result.Status == "Shipped"
@@ -595,16 +594,23 @@ local function onEnded(result: any, payout: any)
 		for _ = 1, 16 do
 			Juice.Spark(root, UDim2.fromScale(math.random(), math.random() * 0.6 + 0.2), Theme.TYPED)
 		end
+	else
+		Juice.Banner(root, "LAUNCH FAILED", Theme.BUG, 56)
 	end
-	resultLabel.Text = if shipped
-		then `SHIPPED   +${tonumber(payout) or 0}`
-		else "LAUNCH FAILED   your components are safe, try again"
-	resultLabel.TextColor3 = if shipped then Theme.TYPED else Theme.BUG
-	resultLabel.Visible = true
-	task.delay(RESULT_SECONDS, function()
+
+	local stats = if type(result) == "table" then result else {}
+	task.delay(RESULTS_DELAY, function()
 		if not renderConnection then
 			gui.Enabled = false
 		end
+		ResultsScreen.Show({
+			Shipped = shipped,
+			Payout = tonumber(payout) or 0,
+			Successes = tonumber(stats.Successes) or 0,
+			Mistakes = tonumber(stats.Mistakes) or 0,
+			MaxCombo = tonumber(stats.MaxCombo) or 0,
+			Grade = if type(grade) == "string" then grade else "C",
+		})
 	end)
 end
 
@@ -717,13 +723,6 @@ function BattleController.Init()
 	inputHolder.Size = UDim2.new(1, 0, 0, 64)
 	inputHolder.Parent = centre
 
-	resultLabel = Theme.Text(root, "", 30, Theme.TYPED)
-	resultLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	resultLabel.Position = UDim2.fromScale(0.5, 0.62)
-	resultLabel.Size = UDim2.fromScale(0.8, 0.2)
-	resultLabel.TextXAlignment = Enum.TextXAlignment.Center
-	resultLabel.ZIndex = 5
-	resultLabel.Visible = false
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 end

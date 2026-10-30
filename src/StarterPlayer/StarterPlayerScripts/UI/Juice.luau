@@ -92,6 +92,63 @@ function Juice.Pop(target: GuiObject, amount: number)
 	TweenService:Create(scale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
+-- Counts a label from 0 up to a target with an ease-out, calling onStep on each new whole number.
+-- Yields until done; shouldSkip lets the caller jump straight to the end.
+function Juice.CountUp(
+	label: TextLabel,
+	target: number,
+	seconds: number,
+	format: (value: number) -> string,
+	onStep: ((value: number) -> ())?,
+	shouldSkip: (() -> boolean)?
+)
+	local started = os.clock()
+	local shown = -1
+	while true do
+		local skip = shouldSkip and shouldSkip()
+		local t = if skip or seconds <= 0 then 1 else math.clamp((os.clock() - started) / seconds, 0, 1)
+		local eased = 1 - (1 - t) ^ 3
+		local value = math.floor(target * eased + 0.5)
+		if value ~= shown then
+			shown = value
+			label.Text = format(value)
+			if onStep and value > 0 then
+				onStep(value)
+			end
+		end
+		if t >= 1 then
+			break
+		end
+		task.wait()
+	end
+end
+
+-- A "$" that flies from a point toward the HUD's cash readout in the top-left, shrinking as it goes.
+function Juice.Coin(layer: GuiObject, from: UDim2, to: UDim2)
+	local coin = Instance.new("TextLabel")
+	coin.BackgroundTransparency = 1
+	coin.AnchorPoint = Vector2.new(0.5, 0.5)
+	coin.Position = from + UDim2.fromOffset(rng:NextInteger(-40, 40), rng:NextInteger(-12, 12))
+	coin.Size = UDim2.fromOffset(30, 30)
+	coin.Font = Enum.Font.GothamBlack
+	coin.TextSize = rng:NextInteger(20, 30)
+	coin.TextColor3 = Theme.TYPED
+	coin.TextStrokeTransparency = 0.3
+	coin.Text = "$"
+	coin.ZIndex = 30
+	coin.Parent = layer
+
+	local fly = TweenService:Create(coin, TweenInfo.new(rng:NextNumber(0.55, 0.85), Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = to,
+		TextSize = 10,
+		Rotation = rng:NextInteger(-180, 180),
+	})
+	fly.Completed:Once(function()
+		coin:Destroy()
+	end)
+	fly:Play()
+end
+
 -- Big centre-screen callout ("WAVE 2", "AMAZING!"): slams in oversized, holds, then lifts away.
 function Juice.Banner(layer: GuiObject, text: string, color: Color3, textSize: number?)
 	local banner = Instance.new("TextLabel")

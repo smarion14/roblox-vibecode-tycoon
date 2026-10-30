@@ -130,6 +130,20 @@ function Economy.PerformanceScore(moodRatio: number, accuracy: number, maxCombo:
 	return MAX_SCORE * (0.5 * clamp01(moodRatio) + 0.3 * clamp01(accuracy) + 0.2 * comboRatio)
 end
 
+-- Letter grade for a deploy's performance score (0-2), shown on the results screen.
+function Economy.PerformanceGrade(score: number): Grade
+	if score ~= score then
+		return "C"
+	elseif score >= 1.8 then
+		return "S"
+	elseif score >= 1.5 then
+		return "A"
+	elseif score >= 1.1 then
+		return "B"
+	end
+	return "C"
+end
+
 function Economy.Payout(totalUnits: number, valuation: number, score: number, tierMultiplier: number): number
 	return math.floor(totalUnits * valuation * math.clamp(score, 0, MAX_SCORE) * tierMultiplier)
 end

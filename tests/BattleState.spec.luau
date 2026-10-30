@@ -206,4 +206,28 @@ tests["snapshot"] = function()
 	assert(snapshot.Status == "Running")
 end
 
+tests["successes and mistakes are counted"] = function()
+	local b = newBattle(0)
+	local first, second = b.Bugs[1], b.Bugs[2]
+	BattleState.Squash(b, first.Word, first.SpawnAt + 1) -- success
+	BattleState.Squash(b, "notabug", first.SpawnAt + 1.5) -- mistake: missed squash
+	BattleState.Tick(b, second.ReachAt + RULES.LatencyGrace + 0.01) -- mistake: bug got through
+	local result = BattleState.Result(b)
+	assert(result.Successes == 1, `successes {result.Successes}`)
+	assert(result.Mistakes >= 2, `mistakes {result.Mistakes}`)
+end
+
+tests["boss word hits count as successes"] = function()
+	local b = newBattle(3)
+	local theBoss = boss(b)
+	for _, bug in minions(b) do
+		if bug.SpawnAt + 0.6 < theBoss.SpawnAt + 1 then
+			BattleState.Squash(b, bug.Word, bug.SpawnAt + 0.6)
+		end
+	end
+	local before = BattleState.Result(b).Successes
+	BattleState.Squash(b, "memory", theBoss.SpawnAt + 1)
+	assert(BattleState.Result(b).Successes == before + 1)
+end
+
 return tests

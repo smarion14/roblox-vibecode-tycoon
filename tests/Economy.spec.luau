@@ -86,4 +86,14 @@ tests["gear"] = function()
 	assert(monitorPreview == true)
 end
 
+tests["performance grade"] = function()
+	assert(Economy.PerformanceGrade(2) == "S")
+	assert(Economy.PerformanceGrade(1.8) == "S")
+	assert(Economy.PerformanceGrade(1.79) == "A")
+	assert(Economy.PerformanceGrade(1.5) == "A")
+	assert(Economy.PerformanceGrade(1.1) == "B")
+	assert(Economy.PerformanceGrade(1.09) == "C")
+	assert(Economy.PerformanceGrade(0 / 0) == "C")
+end
+
 return tests

@@ -58,7 +58,8 @@ local function endBattle(player: Player, active: ActiveBattle)
 	local result = BattleState.Result(active.Battle)
 	local payout = AssemblyService.SettleDeploy(player, result)
 	StartupDataModule.SetActivity(player, "Idle")
-	RemoteManager.FireClient(RemoteNames.BattleEnded, player, result, payout)
+	local score = Economy.PerformanceScore(result.MoodRatio, result.Accuracy, result.MaxCombo)
+	RemoteManager.FireClient(RemoteNames.BattleEnded, player, result, payout, Economy.PerformanceGrade(score))
 end
 
 local function afterInput(player: Player, active: ActiveBattle)
