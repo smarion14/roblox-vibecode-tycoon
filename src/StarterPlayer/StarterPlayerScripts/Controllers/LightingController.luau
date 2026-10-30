@@ -100,8 +100,8 @@ local function apply(daylight: number)
 		local color = fixture:GetAttribute("NightColor")
 		if typeof(color) == "Color3" then
 			local off = Color3.new(color.R * OFF_COLOR_SCALE, color.G * OFF_COLOR_SCALE, color.B * OFF_COLOR_SCALE)
-			local lit = Color3.new(color.R * NEON_NIGHT_SCALE, color.G * NEON_NIGHT_SCALE, color.B * NEON_NIGHT_SCALE)
-			fixture.Color = off:Lerp(lit, nightness)
+			local litColor = Color3.new(color.R * NEON_NIGHT_SCALE, color.G * NEON_NIGHT_SCALE, color.B * NEON_NIGHT_SCALE)
+			fixture.Color = off:Lerp(litColor, nightness)
 		end
 		fixture.Material = if lit then Enum.Material.Neon else Enum.Material.SmoothPlastic
 		local light = fixture:FindFirstChildOfClass("PointLight")
