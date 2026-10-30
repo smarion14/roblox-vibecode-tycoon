@@ -94,7 +94,8 @@ function TypingJudge.TimeAdjustment(accuracy: number, promptNumber: number, rule
 	return -rules.ErrorPenalty
 end
 
-local function gradeFor(accuracy: number, allCompleted: boolean): Grade
+-- Shared by every station minigame: S needs everything finished, the rest is by accuracy.
+function TypingJudge.GradeFor(accuracy: number, allCompleted: boolean): Grade
 	if allCompleted and accuracy >= GRADE_S then
 		return "S"
 	elseif accuracy >= GRADE_A then
@@ -174,7 +175,7 @@ function TypingJudge.JudgeBurst(
 	return {
 		Accuracy = accuracy,
 		Completed = completed,
-		Grade = gradeFor(accuracy, completed == #prompts),
+		Grade = TypingJudge.GradeFor(accuracy, completed == #prompts),
 		Flagged = flagged,
 	}
 end

@@ -136,7 +136,7 @@ local function onPrompt(index: any, text: any, nextText: any, timeLeft: any, tim
 	end
 end
 
-local function onFinished(grade: any, accuracy: any, component: any, completed: any, total: any)
+local function onFinished(grade: any, accuracy: any, component: any, completed: any, total: any, progressLabel: any, scoreLabel: any)
 	closeField()
 	if timerTween then
 		timerTween:Cancel()
@@ -171,6 +171,8 @@ local function onFinished(grade: any, accuracy: any, component: any, completed: 
 		Accuracy = if type(accuracy) == "number" then math.clamp(accuracy, 0, 1) else 0,
 		Completed = if type(completed) == "number" then completed else 0,
 		Total = if type(total) == "number" then total else GameConfig.BURST_PROMPT_COUNT,
+		ProgressLabel = if type(progressLabel) == "string" then progressLabel else nil,
+		ScoreLabel = if type(scoreLabel) == "string" then scoreLabel else nil,
 	})
 end
 

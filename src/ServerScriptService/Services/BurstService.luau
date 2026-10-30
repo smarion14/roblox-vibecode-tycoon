@@ -130,7 +130,9 @@ local function finish(player: Player, burst: ActiveBurst)
 		result.Accuracy,
 		burst.Component,
 		result.Completed,
-		#burst.Texts
+		#burst.Texts,
+		"Prompts finished",
+		"Accuracy"
 	)
 end
 
@@ -138,6 +140,9 @@ local function onStation(player: Player, part: BasePart)
 	local component = part:GetAttribute("Component")
 	if type(component) ~= "string" or not PromptBank.BURST_PROMPTS[component] then
 		return
+	end
+	if GameConfig.STATION_MINIGAMES[component] ~= "Typing" then
+		return -- other stations play MinigameService games
 	end
 	local save = StartupDataModule.GetSnapshot(player)
 	if not save or StartupDataModule.GetActivity(player) ~= "Idle" then

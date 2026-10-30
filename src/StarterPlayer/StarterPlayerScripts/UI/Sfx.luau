@@ -106,7 +106,8 @@ local function ensurePools()
 	end)
 end
 
-function Sfx.Play(name: SoundName)
+-- pitch overrides the sound's random pitch range, e.g. to give each drive bay its own note.
+function Sfx.Play(name: SoundName, pitch: number?)
 	ensurePools()
 	local pool = pools[name]
 	local def = SOUNDS[name]
@@ -116,7 +117,7 @@ function Sfx.Play(name: SoundName)
 	local cursor = cursors[name] % #pool + 1
 	cursors[name] = cursor
 	local sound = pool[cursor]
-	sound.PlaybackSpeed = rng:NextNumber(def.PitchMin, def.PitchMax)
+	sound.PlaybackSpeed = pitch or rng:NextNumber(def.PitchMin, def.PitchMax)
 	sound.TimePosition = 0
 	sound:Play()
 end

@@ -15,6 +15,9 @@ local RemoteNames = {
 	Purchase = "Purchase",
 	StoryBeat = "StoryBeat",
 	IntroSeen = "IntroSeen",
+	MinigameStart = "MinigameStart",
+	MinigameAction = "MinigameAction",
+	MinigameUpdate = "MinigameUpdate",
 }
 
 return RemoteNames

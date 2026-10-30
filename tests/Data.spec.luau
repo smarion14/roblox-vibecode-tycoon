@@ -78,7 +78,7 @@ tests["remote names map to themselves"] = function()
 		assert(key == value, `{key} maps to {value}`)
 		count += 1
 	end
-	assert(count == 14, `expected 14 remote names, got {count}`)
+	assert(count == 17, `expected 17 remote names, got {count}`)
 end
 
 tests["intro contains the exact doubter line"] = function()
@@ -92,6 +92,15 @@ tests["intro contains the exact doubter line"] = function()
 	assert(StoryText.SIBLING_TEXTS[1] == "lol it crashed for me")
 	assert(table.find(StoryText.SIBLING_TEXTS, "...how much did that pay?"))
 	assert(StoryText.ACT1_COMPLETE == "Act 1 complete. To be continued.")
+end
+
+tests["every station has a minigame"] = function()
+	local known = { Typing = true, PatchPanel = true, RaidRebuild = true, TrainingRun = true }
+	for _, component in GameConfig.COMPONENTS do
+		local kind = GameConfig.STATION_MINIGAMES[component]
+		assert(kind and known[kind], `{component} has no minigame`)
+	end
+	assert(GameConfig.STATION_MINIGAMES.FrontendUnits == "Typing")
 end
 
 return tests

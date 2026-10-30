@@ -58,6 +58,41 @@ GameConfig.HIRES = {
 
 GameConfig.BURST_PROMPT_COUNT = 3
 
+-- Which minigame each station plays. Typing stations use BURST_RULES; the rest use MINIGAMES below.
+GameConfig.STATION_MINIGAMES = {
+	FrontendUnits = "Typing",
+	BackendEndpoints = "PatchPanel",
+	DatabaseTables = "RaidRebuild",
+	PromptTokens = "TrainingRun",
+} :: { [string]: string }
+
+GameConfig.MINIGAMES = {
+	-- Server Rack: rotate cable tiles to route the router to the server.
+	PatchPanel = { Cols = 5, Rows = 4, TimeLimit = 25 },
+	-- Database Console: repeat the NAS drive-bay flash sequence; each round adds a step.
+	RaidRebuild = {
+		Bays = 4,
+		Rounds = 4,
+		StartLength = 3,
+		StepSeconds = 0.55,
+		InputSecondsPerStep = 1.4,
+		InputGrace = 2.5,
+		MinSecondsPerInput = 0.08,
+	},
+	-- AI Model Rig: press while the loss needle is in the green zone. Later epochs are faster and tighter.
+	TrainingRun = {
+		Epochs = {
+			{ Speed = 0.45, ZoneWidth = 0.3 },
+			{ Speed = 0.6, ZoneWidth = 0.24 },
+			{ Speed = 0.75, ZoneWidth = 0.19 },
+			{ Speed = 0.95, ZoneWidth = 0.15 },
+		},
+		EpochSeconds = 6,
+		MaxLag = 0.5,
+		Lead = 0.05,
+	},
+}
+
 -- Countdown: starts at TimeLimit. A clean prompt (accuracy >= CleanAccuracy) adds
 -- CleanBonus + BonusPerPrompt * (n - 1) seconds; a sloppy one removes ErrorPenalty.
 GameConfig.BURST_RULES = {

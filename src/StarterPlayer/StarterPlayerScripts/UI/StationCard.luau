@@ -14,6 +14,8 @@ export type StationResult = {
 	Accuracy: number, -- 0-1
 	Completed: number,
 	Total: number,
+	ProgressLabel: string?, -- e.g. "Prompts finished", "Rounds cleared"
+	ScoreLabel: string?, -- e.g. "Accuracy", "Precision"
 }
 
 local AUTO_CLOSE_SECONDS = 8
@@ -126,7 +128,7 @@ function StationCard.Show(result: StationResult)
 	task.spawn(function()
 		pause(0.3)
 
-		local accuracy = row(card, 1, "Accuracy", Theme.TYPED)
+		local accuracy = row(card, 1, result.ScoreLabel or "Accuracy", Theme.TYPED)
 		Juice.CountUp(accuracy, math.floor(result.Accuracy * 100 + 0.5), 0.8, function(value: number): string
 			return `{value}%`
 		end, function()
@@ -141,7 +143,7 @@ function StationCard.Show(result: StationResult)
 		end
 		pause(0.2)
 
-		local prompts = row(card, 2, "Prompts finished", Theme.TEXT)
+		local prompts = row(card, 2, result.ProgressLabel or "Prompts finished", Theme.TEXT)
 		Juice.CountUp(prompts, result.Completed, 0.5, function(value: number): string
 			return `{value} / {result.Total}`
 		end, function()
