@@ -1,5 +1,5 @@
 --!strict
--- Sibling texts as phone toasts, and the full-screen card when rent is paid and Act 1 ends.
+-- Sibling texts as phone toasts, cutscene beats handed to CutsceneController, and the full-screen card when Act 2 ends.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -10,7 +10,7 @@ local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
-local IntroController = require(script.Parent:WaitForChild("IntroController"))
+local CutsceneController = require(script.Parent:WaitForChild("CutsceneController"))
 
 local TEXT_SECONDS = 5
 
@@ -72,22 +72,12 @@ local function showCard(lines: { string }, ending: string)
 end
 
 local function onBeat(kind: any, payload: any)
-	if kind == "Intro" then
-		task.spawn(IntroController.Play, payload)
+	if kind == "Cutscene" then
+		task.spawn(CutsceneController.Play, payload)
 	elseif kind == "SiblingText" then
 		showText(payload)
-	elseif kind == "RentPaid" and type(payload) == "table" then
-		local lines: { string } = {}
-		if type(payload.Lines) == "table" then
-			for _, line in payload.Lines do
-				if type(line) == "string" then
-					table.insert(lines, line)
-				end
-			end
-		end
-		showCard(lines, tostring(payload.Ending))
-	elseif kind == "Act1Complete" then
-		showCard({}, tostring(payload))
+	elseif kind == "Act2Complete" then
+		showCard({ "You hit your valuation goal." }, "Act 2 complete. To be continued.")
 	end
 end
 

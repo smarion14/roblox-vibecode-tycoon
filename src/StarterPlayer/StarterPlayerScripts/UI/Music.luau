@@ -5,7 +5,7 @@ local ContentProvider = game:GetService("ContentProvider")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
-export type TrackName = "Battle" | "Boss"
+export type TrackName = "Battle" | "Boss" | "Cutscene"
 
 type TrackDef = {
 	Id: number,
@@ -15,6 +15,7 @@ type TrackDef = {
 local TRACKS: { [string]: TrackDef } = {
 	Battle = { Id = 140486290054589, Volume = 0.35 }, -- "Insert Coin", synthwave
 	Boss = { Id = 9038252619, Volume = 0.4 }, -- "Metal Sci-Fi Universe", driving lead synth
+	Cutscene = { Id = 80450850869262, Volume = 0.3 }, -- "The Spinner Above the Clouds (Cyberpunk Noir)", DistroKid
 }
 local DEFAULT_FADE = 1
 

@@ -164,6 +164,17 @@ GameConfig.ACT_BATTLE = {
 	[2] = { ExtraBugsPerWave = 2, DiveTimeScale = 0.85, BossHp = 20 },
 } :: { [number]: { ExtraBugsPerWave: number, DiveTimeScale: number, BossHp: number } }
 
+-- Published cutscene animation ids (see docs/animations-publish-checklist.md). 0 = not published yet, and
+-- Actors falls back to a built-in animation or none.
+GameConfig.ANIMATIONS = {
+	LaptopClose = 0,
+	HandOverCash = 0,
+	CountCash = 0,
+	Talk = 0,
+	SitCouch = 0,
+	DeskType = 0,
+} :: { [string]: number }
+
 GameConfig.STARTING_VALUATION = 1.0
 GameConfig.RENT_GOAL = 1500
 GameConfig.MAX_PLAYERS = 6

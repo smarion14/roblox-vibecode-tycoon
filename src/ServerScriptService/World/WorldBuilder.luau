@@ -3,6 +3,7 @@
 -- Gameplay code finds objects by CollectionService tag and attributes, never by geometry, so art can replace this later.
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
+local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -145,6 +146,17 @@ local function applyLighting()
 	grade.Parent = Lighting
 end
 
+-- A plain brother rig the cutscene client clones when the unit has no SiblingModel (the Act 2 office).
+local function buildBrotherTemplate()
+	local ok, model = pcall(function(): Model
+		return Players:CreateHumanoidModelFromDescription(Instance.new("HumanoidDescription"), Enum.HumanoidRigType.R15)
+	end)
+	if ok and model then
+		model.Name = "BrotherTemplate"
+		model.Parent = ReplicatedStorage:WaitForChild("Shared")
+	end
+end
+
 function WorldBuilder.BuildFloor(): { Model }
 	local floor = Instance.new("Folder")
 	floor.Name = "Megablock"
@@ -178,6 +190,7 @@ function WorldBuilder.BuildFloor(): { Model }
 
 	buildLamps(floor, rowWidth)
 	applyLighting()
+	buildBrotherTemplate()
 	return units
 end
 
