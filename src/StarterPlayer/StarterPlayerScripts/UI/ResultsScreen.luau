@@ -177,7 +177,8 @@ function ResultsScreen.Show(results: Results)
 		end)
 		if results.Grade == "S" or results.Grade == "A" then
 			for _ = 1, if results.Grade == "S" then 14 else 7 do
-				Juice.Spark(card, UDim2.fromScale(math.random(), 0.7), GRADE_COLORS[results.Grade])
+				-- On the screen, not in the card: anything parented into the card's list layout becomes a row.
+				Juice.Spark(screen :: any, UDim2.fromScale(0.5 + (math.random() - 0.5) * 0.3, 0.55), GRADE_COLORS[results.Grade])
 			end
 		end
 		pause(0.6)

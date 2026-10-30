@@ -96,6 +96,18 @@ function StationCard.Show(result: StationResult)
 	local screen = Theme.Screen("StationCard", 6)
 	gui = screen
 
+	-- Clicking anywhere while it animates jumps to the end. This sits behind the card at screen level:
+	-- inside the card's list layout a full-size button would stretch the card to fill the screen.
+	local skipCatcher = Instance.new("TextButton")
+	skipCatcher.Text = ""
+	skipCatcher.AutoButtonColor = false
+	skipCatcher.BackgroundTransparency = 1
+	skipCatcher.Size = UDim2.fromScale(1, 1)
+	skipCatcher.Parent = screen
+	skipCatcher.Activated:Connect(function()
+		skipping = true
+	end)
+
 	local card = Theme.Panel(screen, UDim2.fromOffset(400, 0), UDim2.fromScale(0.5, 0.45))
 	card.AnchorPoint = Vector2.new(0.5, 0.5)
 	card.AutomaticSize = Enum.AutomaticSize.Y
@@ -107,17 +119,6 @@ function StationCard.Show(result: StationResult)
 	title.TextXAlignment = Enum.TextXAlignment.Center
 	title.LayoutOrder = 0
 	slamIn(title, 1.8)
-
-	-- Clicking the card while it animates jumps to the end.
-	local skipButton = Instance.new("TextButton")
-	skipButton.Text = ""
-	skipButton.BackgroundTransparency = 1
-	skipButton.Size = UDim2.fromScale(1, 1)
-	skipButton.ZIndex = 0
-	skipButton.Parent = card
-	skipButton.Activated:Connect(function()
-		skipping = true
-	end)
 
 	screen.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	Sfx.Play("CardOpen")
@@ -185,7 +186,7 @@ function StationCard.Show(result: StationResult)
 			Juice.Banner(screen :: any, style.Banner, style.Color, 46)
 		end
 		for _ = 1, style.Sparks do
-			Juice.Spark(card, UDim2.fromScale(math.random(), 0.7), style.Color)
+			Juice.Spark(screen :: any, UDim2.fromScale(0.5 + (math.random() - 0.5) * 0.3, 0.5), style.Color)
 		end
 		pause(0.5)
 
