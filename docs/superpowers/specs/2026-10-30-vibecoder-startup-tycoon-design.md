@@ -90,6 +90,15 @@ There are four physical stations in the player's unit, one per component:
 
 ### 4.2 Deploy battle (perform)
 
+> **Update 2026-10-30: the deploy battle is now a Galaga-style shooter** (replaces the typing battle below).
+> Bugs enter from the top, hold formation, then dive at YOUR CODE (the bottom edge). The player's app is a ship that
+> moves along the bottom (keys, drag or stick) and fires automatically. Two waves, then a boss bug with a health bar
+> and escort divers. Bugs that land cost client mood; mood is the player's health. **Station grades set the loadout:**
+> Frontend → shield hits, Server Rack → fire rate, Database Console → one rollback save, AI Model Rig → homing shots.
+> Bug paths are deterministic and shared by server and client; the client reports hits by bug id and the server checks
+> each is possible (bug on screen, not yet landed, within a fire-rate shot budget). The text below describes the old
+> typing battle and is kept for history.
+
 Layout (agreed mockup: `.superpowers/brainstorm/*/content/deploy-battle-v2.html`):
 
 - **Left panel: the client on a live call.** It shows their face, live reaction lines and a **mood bar**.
