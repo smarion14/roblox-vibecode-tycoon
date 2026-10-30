@@ -139,20 +139,6 @@ function Economy.BuildUnit(inv: Inventory, component: string, grade: Grade, need
 	return { Inventory = result, Outcome = "Kept", Replaced = nil }
 end
 
-function Economy.ApplyHires(inv: Inventory, recipe: Recipe, hired: { [string]: boolean }): Inventory
-	local result = copyInventory(inv)
-	for component, isHired in hired do
-		local needed = recipe[component]
-		if not isHired or not needed then
-			continue
-		end
-		local grades = result[component] or { S = 0, A = 0, B = 0, C = 0 }
-		result[component] = grades
-		grades.C += math.max(0, needed - unitCount(grades))
-	end
-	return result
-end
-
 function Economy.PerformanceScore(moodRatio: number, accuracy: number, maxCombo: number): number
 	local comboRatio = clamp01(maxCombo / COMBO_FOR_FULL_CREDIT)
 	return MAX_SCORE * (0.5 * clamp01(moodRatio) + 0.3 * clamp01(accuracy) + 0.2 * comboRatio)

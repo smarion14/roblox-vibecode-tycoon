@@ -123,7 +123,12 @@ local function buildEmployeeDesk(contents: Instance, base: CFrame, role: string)
 		part(contents, "EmployeeDeskLeg", Vector3.new(0.25, 3, 2), base * CFrame.new(x, 1.5, 0), COLOR_BEZEL, Enum.Material.Metal)
 	end
 	local surface = base * CFrame.new(0, 3.125, 0)
-	monitor(contents, "EmployeeMonitor", Vector2.new(2.2, 1.3), surface * CFrame.new(0, 1.1, -0.5), GameConfig.STATION_NAMES[role], COLOR_CYAN)
+	local screen = monitor(contents, "EmployeeMonitor", Vector2.new(2.2, 1.3), surface * CFrame.new(0, 1.1, -0.5), GameConfig.STATION_NAMES[role], COLOR_CYAN)
+	-- Every desk's screen shares one name; the client finds its own through this link.
+	local link = Instance.new("ObjectValue")
+	link.Name = "Screen"
+	link.Value = screen
+	link.Parent = top
 
 	local seat = chair(top, base * CFrame.new(0, 0, 2.2))
 	seat.Name = "EmployeeSeat"

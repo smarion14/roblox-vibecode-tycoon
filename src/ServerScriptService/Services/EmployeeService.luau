@@ -8,16 +8,27 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
+local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
+local Workforce = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Workforce"))
 
 -- Roblox's default R15 sit, used until DeskType is published.
 local SIT_ANIMATION_ID = 2506281703
 local MAX_FRIENDS = 4
+local TICK_SECONDS = 0.5
 
 local EmployeeService = {}
 
 local friendCache: { [Player]: { number } } = {}
 local rng = Random.new()
+-- Per player, per role: seconds into the current part.
+local progressOf: { [Player]: { [string]: number } } = {}
+-- The DeskType track of each seated employee, paused while the desk has nothing to build.
+local deskTracks: { [BasePart]: AnimationTrack } = setmetatable({}, { __mode = "k" }) :: any
+-- Task 4 swaps this for the decor perks.
+local function currentBonuses(_player: Player): Workforce.Bonuses
+	return { Speed = 0, GradeAChance = 0 }
+end
 
 local function friendIds(player: Player): { number }
 	local cached = friendCache[player]
@@ -118,6 +129,8 @@ local function spawnEmployee(player: Player, desk: BasePart, seat: Seat, role: s
 		local track = animator:LoadAnimation(animation)
 		track.Looped = true
 		track:Play()
+		track:AdjustSpeed(if desk:GetAttribute("Working") == true then 1 else 0)
+		deskTracks[desk] = track
 	end
 end
 
@@ -163,12 +176,77 @@ function EmployeeService.Refresh(player: Player)
 	end
 end
 
+local function setDeskAttribute(desk: BasePart, name: string, value: any)
+	if desk:GetAttribute(name) ~= value then
+		desk:SetAttribute(name, value)
+	end
+end
+
+-- One workforce tick: hired roles that still need parts for the active job make progress, finished parts are
+-- recorded through the same "upgrade, don't add" path as the stations. Desk attributes drive the client bars.
+local function tickPlayer(player: Player, dt: number)
+	local save = StartupDataModule.GetSnapshot(player)
+	local unit = PlotService.GetUnitModel(player)
+	local job = AssemblyService.GetActiveJob(player)
+	if not save or not unit or save.Act < 2 then
+		return
+	end
+	local recipe = if job then GameConfig.RECIPES[job.Project] else nil
+	local have: { [string]: number } = {}
+	for component, grades in save.Inventory do
+		have[component] = grades.S + grades.A + grades.B + grades.C
+	end
+	local needs = if recipe then Workforce.Needs(GameConfig.COMPONENTS, recipe, have, save.Hires) else {}
+
+	local progress = progressOf[player] or {}
+	progressOf[player] = progress
+	local bonuses = currentBonuses(player)
+	local buildSeconds = Workforce.BuildSeconds(GameConfig.WORKFORCE.BuildSeconds, bonuses)
+	local finished = Workforce.Step(progress, needs, dt, buildSeconds)
+	local built: { [string]: boolean } = {}
+	for _, role in finished do
+		built[role] = true
+		AssemblyService.BuildPart(player, role, Workforce.RollGrade(bonuses, rng:NextNumber()) :: any)
+	end
+
+	for _, desk in CollectionService:GetTagged("EmployeeDesk") do
+		local role = desk:GetAttribute("Role")
+		if not desk:IsA("BasePart") or type(role) ~= "string" or not desk:IsDescendantOf(unit) then
+			continue
+		end
+		local working = table.find(needs, role) ~= nil
+		setDeskAttribute(desk, "Working", working)
+		setDeskAttribute(desk, "BuildProgress", math.clamp((progress[role] or 0) / buildSeconds, 0, 1))
+		if built[role] then
+			desk:SetAttribute("PartsBuilt", (desk:GetAttribute("PartsBuilt") or 0) + 1)
+		end
+		local track = deskTracks[desk]
+		if track and track.IsPlaying then
+			track:AdjustSpeed(if working then 1 else 0)
+		end
+	end
+end
+
 function EmployeeService.Init() end
 
 function EmployeeService.Start()
 	PlotService.OnUnitBuilt(EmployeeService.Refresh)
 	Players.PlayerRemoving:Connect(function(player: Player)
 		friendCache[player] = nil
+		progressOf[player] = nil
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(TICK_SECONDS)
+			for _, player in Players:GetPlayers() do
+				local ok, err = pcall(function()
+					tickPlayer(player, TICK_SECONDS)
+				end)
+				if not ok then
+					warn(`EmployeeService: workforce tick failed: {err}`)
+				end
+			end
+		end
 	end)
 end
 

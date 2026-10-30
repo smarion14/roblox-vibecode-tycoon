@@ -68,12 +68,6 @@ tests["worst grade of a part"] = function()
 	assert(Economy.WorstGrade(inv, "FrontendUnits") == "B")
 end
 
-tests["hires fill to recipe"] = function()
-	local filled = Economy.ApplyHires(empty(), RECIPE, { FrontendUnits = true })
-	assert(filled.FrontendUnits.C == 2)
-	assert(Economy.TotalUnits(filled) == 2)
-end
-
 tests["score bounds"] = function()
 	assert(Economy.PerformanceScore(1, 1, 30) == 2)
 	-- a battle has roughly 15-20 squashes, so a 15 streak earns full combo credit

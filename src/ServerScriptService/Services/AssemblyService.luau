@@ -131,10 +131,8 @@ local function onAcceptJob(player: Player, clientId: any)
 		return
 	end
 
-	local recipe = GameConfig.RECIPES[client.Project]
 	StartupDataModule.Update(player, function(current)
 		current.ActiveJobId = client.Id
-		current.Inventory = Economy.ApplyHires(current.Inventory, recipe, current.Hires)
 	end)
 	AssemblyService.RefreshStationPrompts(player)
 	notice(player, `New job: {client.Name}`)
