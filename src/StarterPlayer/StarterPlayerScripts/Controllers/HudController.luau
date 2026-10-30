@@ -79,7 +79,14 @@ local function onStateSync(view: any)
 		end
 	end
 
-	if view.RentPaid then
+	if (tonumber(view.Act) or 1) >= 2 then
+		-- Act 2: the same row tracks the valuation goal from where the act started.
+		local valuation = tonumber(view.Valuation) or 1
+		local goal = tonumber(view.ActGoal) or 1
+		local start = goal - GameConfig.ACT2.ValuationStep
+		rentLabel.Text = string.format("GOAL  valuation x%.2f / x%.2f", valuation, goal)
+		rentFill.Size = UDim2.fromScale(math.clamp((valuation - start) / (goal - start), 0, 1), 1)
+	elseif view.RentPaid then
 		rentLabel.Text = "RENT  PAID"
 		rentFill.Size = UDim2.fromScale(1, 1)
 	else
