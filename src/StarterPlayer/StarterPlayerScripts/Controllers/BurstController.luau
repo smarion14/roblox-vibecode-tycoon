@@ -12,21 +12,15 @@ local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForC
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
 local Sfx = require(UI:WaitForChild("Sfx"))
+local StationCard = require(UI:WaitForChild("StationCard"))
 local Theme = require(UI:WaitForChild("Theme"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
 
-local GRADE_POPUP_SECONDS = 1.8
+local PANEL_EXIT_DELAY = 0.35 -- let the last pip pop before the panel drops away
 local LOW_TIME_SECONDS = 3
 local PANEL_REST = UDim2.new(0.5, 0, 1, -40)
 local PANEL_HIDDEN = UDim2.new(0.5, 0, 1, 120)
 
--- Grade reveal styling: colour, banner text (nil = no banner) and how many sparks fly.
-local GRADE_STYLE: { [string]: { Color: Color3, Banner: string?, Sparks: number } } = {
-	S = { Color = Theme.MOOD, Banner = "S RANK! FLAWLESS", Sparks = 18 },
-	A = { Color = Theme.TYPED, Banner = "A RANK!", Sparks = 10 },
-	B = { Color = Theme.ACCENT, Banner = nil, Sparks = 4 },
-	C = { Color = Theme.MUTED, Banner = nil, Sparks = 0 },
-}
 local STREAK_CALLOUTS: { [number]: string } = { [2] = "DOUBLE CLEAN!", [3] = "PERFECT RUN!" }
 
 local BurstController = {}
@@ -41,7 +35,6 @@ local secondsLabel: TextLabel
 local deadline = 0
 local maxSeconds = 1
 local countdown: RBXScriptConnection? = nil
-local gradeLabel: TextLabel
 local field: TypingInput.TypingField? = nil
 local currentIndex = 0
 local timerTween: Tween? = nil
@@ -84,7 +77,7 @@ local function onPrompt(index: any, text: any, nextText: any, timeLeft: any, tim
 
 	if index == 1 then
 		closeField()
-		gradeLabel.Visible = false
+		StationCard.Close()
 		local newField = TypingInput.Create(panel, TypingInput.DetectMode())
 		newField.OnSubmit = function(typed: string)
 			RemoteManager.FireServer(RemoteNames.SubmitBurstPrompt, currentIndex, typed)
@@ -143,14 +136,12 @@ local function onPrompt(index: any, text: any, nextText: any, timeLeft: any, tim
 	end
 end
 
-local function onFinished(grade: any, accuracy: any, component: any)
+local function onFinished(grade: any, accuracy: any, component: any, completed: any, total: any)
 	closeField()
 	if timerTween then
 		timerTween:Cancel()
 	end
-	local gradeText = tostring(grade)
-	local style = GRADE_STYLE[gradeText] or GRADE_STYLE.C
-	local percent = if type(accuracy) == "number" then math.floor(accuracy * 100 + 0.5) else 0
+	local gradeText = if type(grade) == "string" then grade else "C"
 
 	-- The last prompt's pip reflects the overall result (no time change is sent after the final prompt).
 	local lastPip = pips[#pips]
@@ -159,63 +150,28 @@ local function onFinished(grade: any, accuracy: any, component: any)
 		Juice.Pop(lastPip, 0.8)
 	end
 
-	-- Grade slams in oversized and tilted, then settles.
-	gradeLabel.Text = `{gradeText}   {percent}%`
-	gradeLabel.TextColor3 = style.Color
-	gradeLabel.Visible = true
-	gradeLabel.Rotation = math.random(-12, 12)
-	local scale = gradeLabel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
-	scale.Parent = gradeLabel
-	scale.Scale = 2.6
-	TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-	TweenService:Create(gradeLabel, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
-
-	-- Sound: the stamp lands with the slam, the grade stinger right after, S adds a cha-ching.
-	Sfx.Play("GradeStamp")
-	task.delay(0.12, function()
-		if gradeText == "S" then
-			Sfx.Play("GradeS")
-			Sfx.Play("GradeSCash")
-			Sfx.Play("ComboCallout")
-		elseif gradeText == "A" then
-			Sfx.Play("GradeA")
-		elseif gradeText == "B" then
-			Sfx.Play("GradeB")
-		else
-			Sfx.Play("GradeC")
+	local exit = TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+		Position = PANEL_HIDDEN,
+	})
+	exit.Completed:Once(function()
+		if not field then
+			gui.Enabled = false
+			panel.Position = PANEL_REST
 		end
 	end)
-	if style.Banner then
-		Juice.Banner(fx, style.Banner, style.Color, 46)
-	end
-	for _ = 1, style.Sparks do
-		Juice.Spark(panel, UDim2.fromScale(math.random(), 1), style.Color)
-	end
-
-	-- What you built, floating up toward the HUD.
-	local stationName = if type(component) == "string" then GameConfig.STATION_NAMES[component] else nil
-	if stationName then
-		task.delay(0.35, function()
-			Sfx.Play("PartEarned")
-		end)
-		Juice.FloatText(fx, UDim2.new(0.5, 0, 1, -230), `+1 {stationName} ({gradeText})`, style.Color)
-	end
-
-	task.delay(GRADE_POPUP_SECONDS, function()
-		if field then
-			return
+	task.delay(PANEL_EXIT_DELAY, function()
+		if not field then
+			exit:Play()
 		end
-		local exit = TweenService:Create(panel, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-			Position = PANEL_HIDDEN,
-		})
-		exit.Completed:Once(function()
-			if not field then
-				gui.Enabled = false
-				panel.Position = PANEL_REST
-			end
-		end)
-		exit:Play()
 	end)
+
+	StationCard.Show({
+		StationName = if type(component) == "string" then GameConfig.STATION_NAMES[component] or "Station" else "Station",
+		Grade = gradeText,
+		Accuracy = if type(accuracy) == "number" then math.clamp(accuracy, 0, 1) else 0,
+		Completed = if type(completed) == "number" then completed else 0,
+		Total = if type(total) == "number" then total else GameConfig.BURST_PROMPT_COUNT,
+	})
 end
 
 function BurstController.Init()
@@ -284,10 +240,6 @@ function BurstController.Init()
 	previewLabel = Theme.Text(panel, "", 13, Theme.TODO)
 	previewLabel.LayoutOrder = 10
 
-	gradeLabel = Theme.Text(panel, "", 36, Theme.TYPED)
-	gradeLabel.TextXAlignment = Enum.TextXAlignment.Center
-	gradeLabel.LayoutOrder = 11
-	gradeLabel.Visible = false
 
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 end

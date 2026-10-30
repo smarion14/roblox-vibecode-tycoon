@@ -123,7 +123,15 @@ local function finish(player: Player, burst: ActiveBurst)
 		save.Inventory = Economy.AddUnit(save.Inventory, burst.Component, grade)
 	end)
 	StartupDataModule.SetActivity(player, "Idle")
-	RemoteManager.FireClient(RemoteNames.BurstFinished, player, grade, result.Accuracy, burst.Component)
+	RemoteManager.FireClient(
+		RemoteNames.BurstFinished,
+		player,
+		grade,
+		result.Accuracy,
+		burst.Component,
+		result.Completed,
+		#burst.Texts
+	)
 end
 
 local function onStation(player: Player, part: BasePart)
