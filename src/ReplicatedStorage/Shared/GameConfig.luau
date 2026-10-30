@@ -177,6 +177,9 @@ GameConfig.ACT2 = {
 	} :: { Milestone },
 }
 
+-- Hired employees build parts on their own; seconds per part before perks, and the grades they produce.
+GameConfig.WORKFORCE = { BuildSeconds = 25, Grade = "B", BonusGrade = "A" }
+
 -- Deploy battle difficulty per act, applied on top of BATTLE_RULES.
 GameConfig.ACT_BATTLE = {
 	[2] = { ExtraBugsPerWave = 2, DiveTimeScale = 0.85, BossHp = 20 },
