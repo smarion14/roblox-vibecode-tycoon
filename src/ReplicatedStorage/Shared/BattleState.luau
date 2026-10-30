@@ -348,8 +348,11 @@ function BattleState.New(
 		local firedAt = bossSpawn + rules.BossEntryTime
 		while firedAt < bossReach do
 			local originX, originY = BattleState.BugPosition(bossBug, firedAt)
-			for i = 1, squad.VolleySize do
+			for i = 1, if originY < squad.ShipY then squad.VolleySize else 0 do -- a boss at the ship row fires nothing
 				local angle = if squad.VolleySize > 1 then spread * ((i - 1) / (squad.VolleySize - 1) - 0.5) else 0
+				if math.cos(angle) <= 0 then
+					continue -- a bullet flying sideways or up never crosses the ship row
+				end
 				table.insert(bullets, {
 					Id = #bullets + 1,
 					FiredAt = firedAt,
@@ -596,6 +599,7 @@ function BattleState.Kill(b: Battle, bugId: number, now: number, weapon: Weapon?
 			-- The crash report splits into two shards that burst out sideways, then dive.
 			local squad = options.Squad
 			local x, y = BattleState.BugPosition(bug, now)
+			y = math.min(y, squad.ShipY - 0.2) -- a last-moment kill must not drop shards past the ship's guns
 			for _, side in { -1, 1 } do
 				local diveAt = now + squad.ShardDiveDelay
 				table.insert(b.Bugs, {
@@ -606,7 +610,7 @@ function BattleState.Kill(b: Battle, bugId: number, now: number, weapon: Weapon?
 					SpawnAt = now,
 					EntryTime = 0.2,
 					SpawnX = x,
-					FormX = x + side * squad.ShardSpread,
+					FormX = math.clamp(x + side * squad.ShardSpread, 0.05, 0.95),
 					FormY = y,
 					DiveAt = diveAt,
 					DiveX = 0.1 + b.Rng() * 0.8,

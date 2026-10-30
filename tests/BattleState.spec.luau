@@ -435,6 +435,21 @@ tests["crash reports split into two shards"] = function()
 	assert(BattleState.Snapshot(b).BugCount == count + 2)
 end
 
+tests["a crash shot at the last moment splits above the ship"] = function()
+	local b = enemyBattle("Crash", false)
+	local crash = firstOfKind(b, "Crash")
+	clearAllBut(b, crash)
+	local _, crashY = BattleState.BugPosition(crash, crash.ReachAt)
+	assert(crashY >= SQUAD.ShipY, "fixture: the crash is below the ship row when it lands")
+	assert(BattleState.Kill(b, crash.Id, crash.ReachAt))
+	for i = #b.Bugs - 1, #b.Bugs do
+		local shard = b.Bugs[i]
+		assert(shard.Kind == "Shard" and shard.FormY < SQUAD.ShipY, `shard y {shard.FormY}`)
+		assert(shard.FormX >= 0.05 and shard.FormX <= 0.95, `shard x {shard.FormX}`)
+		assert(BattleState.Kill(b, shard.Id, shard.SpawnAt + RULES.VisibleDelay + 0.01), `shard {i}`)
+	end
+end
+
 tests["claims need the weapon and a live bug"] = function()
 	local b = enemyBattle("Crash", false)
 	local crash = firstOfKind(b, "Crash")
@@ -470,7 +485,7 @@ tests["boss volleys hit a ship in the way and miss one that dodged"] = function(
 		local theBoss = boss(b)
 		clearAllBut(b, theBoss)
 		local bullet = b.Bullets[1]
-		assert(bullet.FiredAt == theBoss.SpawnAt + RULES.BossEntryTime and bullet.State == "Live")
+		assert(bullet.FiredAt == theBoss.SpawnAt + RULES.BossEntryTime and (bullet.State :: string) == "Live")
 		assert(#b.Bullets % SQUAD.VolleySize == 0 and b.Bullets[#b.Bullets].FiredAt < theBoss.ReachAt)
 		local ox = BattleState.BugPosition(theBoss, bullet.FiredAt)
 		assert(bullet.OriginX == ox)
