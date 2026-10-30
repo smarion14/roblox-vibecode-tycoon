@@ -5,6 +5,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -54,6 +55,27 @@ local COMBO_CALLOUTS: { [number]: string } = {
 	[25] = "LEGENDARY DEV!",
 }
 
+-- What the client says on the call when something good happens.
+local CLIENT_LINES: { [string]: { string } } = {
+	Squash = {
+		"Wow, this app is great!",
+		"Ooh, smooth!",
+		"That bug's gone? Nice.",
+		"Clean work!",
+		"I like where this is going.",
+		"My customers will love this!",
+		"Fast AND pretty?",
+		"Okay, I'm impressed.",
+	},
+	BossHit = { "You're breaking it apart!", "Keep going, keep going!", "Get that thing!", "It's cracking!" },
+	BossDown = { "YOU DID IT! That was the big one!", "Is it fixed?! It's FIXED!", "Best developer ever!" },
+	Combo = { "You're on a roll!", "Are you even human?", "This is going viral!", "Teach me your ways!" },
+}
+local HAPPY_FACES = { "😍", "🤩", "😆", "🥳" }
+local MAX_BUBBLES = 3
+local BUBBLE_SECONDS = 3.5
+local SQUASH_LINE_COOLDOWN = 0.7 -- squashes can land every half second; don't bury the sidebar in bubbles
+
 local REACTIONS = {
 	happy = { "Oh nice, that loads fast.", "This is exactly what I pictured.", "My team is going to love this." },
 	neutral = { "Okay, keep going.", "Hmm, interesting choice.", "Is that how it's supposed to look?" },
@@ -67,7 +89,11 @@ local root: Frame
 local rootFlash: Frame
 local clientName: TextLabel
 local face: TextLabel
-local reaction: TextLabel
+local bubbleStack: Frame
+local faceBand = ""
+local faceToken = 0
+local lastSquashLine = 0
+local bubbleOrder = 0
 local moodFill: Frame
 local comboLabel: TextLabel
 local waveLabel: TextLabel
@@ -102,15 +128,105 @@ local function moodBand(mood: number): string
 	return "annoyed"
 end
 
+-- Chat bubble from the client: pops in from the face with an overshoot, settles, then fades out.
+-- Good news gets a green edge, complaints a red one. Only the newest few stay on screen.
+local function clientSay(text: string, positive: boolean)
+	bubbleOrder += 1
+	local bubble = Instance.new("Frame")
+	bubble.AutomaticSize = Enum.AutomaticSize.Y
+	bubble.Size = UDim2.new(1, 0, 0, 0)
+	bubble.BackgroundColor3 = Theme.PANEL
+	bubble.LayoutOrder = -bubbleOrder -- newest on top
+	bubble.Parent = bubbleStack
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = bubble
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = if positive then Theme.TYPED else Theme.BUG
+	stroke.Thickness = 2
+	stroke.Parent = bubble
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 6)
+	padding.PaddingBottom = UDim.new(0, 6)
+	padding.PaddingLeft = UDim.new(0, 8)
+	padding.PaddingRight = UDim.new(0, 8)
+	padding.Parent = bubble
+	local label = Theme.Text(bubble, `"{text}"`, 15, if positive then Theme.TEXT else Theme.BUG)
+
+	local scale = Instance.new("UIScale")
+	scale.Scale = 0.2
+	scale.Parent = bubble
+	bubble.Rotation = math.random(-6, 6)
+	TweenService:Create(scale, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(bubble, TweenInfo.new(0.4, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+
+	local bubbles: { Frame } = {}
+	for _, child in bubbleStack:GetChildren() do
+		if child:IsA("Frame") then
+			table.insert(bubbles, child)
+		end
+	end
+	table.sort(bubbles, function(a: Frame, b: Frame): boolean
+		return a.LayoutOrder < b.LayoutOrder
+	end)
+	for index = MAX_BUBBLES + 1, #bubbles do
+		bubbles[index]:Destroy()
+	end
+
+	task.delay(BUBBLE_SECONDS, function()
+		if bubble.Parent then
+			TweenService:Create(bubble, TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(stroke, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+			local fade = TweenService:Create(label, TweenInfo.new(0.3), { TextTransparency = 1 })
+			fade.Completed:Once(function()
+				bubble:Destroy()
+			end)
+			fade:Play()
+		end
+	end)
+end
+
+local function bandFace(): string
+	return if faceBand == "happy" then "😄" elseif faceBand == "neutral" then "😐" else "😬"
+end
+
+-- The client lights up for a moment: delighted face, a wiggle and a bounce, plus a green pulse on the mood bar.
+local function clientCheer(text: string)
+	faceToken += 1
+	local token = faceToken
+	face.Text = HAPPY_FACES[math.random(1, #HAPPY_FACES)]
+	Juice.Pop(face, 0.55)
+	face.Rotation = math.random(-15, 15)
+	TweenService:Create(face, TweenInfo.new(0.45, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Rotation = 0 }):Play()
+	moodFill.BackgroundColor3 = Theme.TYPED
+	TweenService:Create(moodFill, TweenInfo.new(0.5), { BackgroundColor3 = Theme.MOOD }):Play()
+	clientSay(text, true)
+	task.delay(0.9, function()
+		if faceToken == token then
+			face.Text = bandFace()
+		end
+	end)
+end
+
+local function cheerFrom(kind: string)
+	local lines = CLIENT_LINES[kind]
+	clientCheer(lines[math.random(1, #lines)])
+end
+
 local function setMood(mood: number)
 	moodFill.Size = UDim2.fromScale(math.clamp(mood / 100, 0, 1), 1)
 	local band = moodBand(mood)
-	face.Text = if band == "happy" then "😄" elseif band == "neutral" then "😐" else "😬"
+	faceBand = band
 	if band ~= lastMoodBand then
+		local dropped = lastMoodBand ~= ""
 		lastMoodBand = band
-		local lines = REACTIONS[band]
-		reaction.Text = `"{lines[math.random(1, #lines)]}"`
+		face.Text = bandFace()
 		Juice.Pop(face, 0.4)
+		-- A drop in mood is worth saying out loud; the opening line is set in onStarted.
+		if dropped and band ~= "happy" then
+			local lines = REACTIONS[band]
+			clientSay(lines[math.random(1, #lines)], false)
+		end
 	end
 end
 
@@ -326,7 +442,15 @@ local function onStarted(info: any)
 	announcedWave = 0
 	clientName.Text = tostring(info.ClientName)
 	lastMoodBand = ""
+	faceToken += 1
+	lastSquashLine = 0
+	for _, child in bubbleStack:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
 	setMood(tonumber(info.Mood) or 70)
+	clientSay("Okay, show me what you've got!", true)
 	comboLabel.Text = "x0"
 	lastCombo = 0
 	partialWord = ""
@@ -361,6 +485,9 @@ local function celebrateCombo(combo: number)
 	comboLabel.TextColor3 = if combo >= 10 then Theme.TYPED elseif combo >= 5 then Theme.MOOD else Theme.ACCENT
 	local callout = COMBO_CALLOUTS[combo]
 	if callout then
+		if combo >= 5 then
+			cheerFrom("Combo")
+		end
 		Sfx.Play("ComboCallout")
 		Juice.Banner(root, callout, if combo >= 10 then Theme.TYPED else Theme.ACCENT, if combo >= 10 then 54 else 46)
 		for _ = 1, 6 do
@@ -371,6 +498,11 @@ end
 
 local function onBugSquashed(bug: BugView)
 	squashedOnce = true
+	local now = os.clock()
+	if now - lastSquashLine >= SQUASH_LINE_COOLDOWN then
+		lastSquashLine = now
+		cheerFrom("Squash")
+	end
 	Sfx.Play("Splat")
 	Juice.Splat(bugLayer, bug.Button.Position)
 	if math.random() < PRAISE_CHANCE then
@@ -379,6 +511,7 @@ local function onBugSquashed(bug: BugView)
 end
 
 local function onBossHit(bug: BugView, newHp: number)
+	cheerFrom("BossHit")
 	bug.Hp = newHp
 	bug.LastHitOffset = serverElapsed()
 	bug.Button.Text = bossText(bug)
@@ -431,6 +564,7 @@ local function onUpdate(snapshot: any)
 				Juice.Splat(bugLayer, bug.Button.Position + UDim2.fromOffset(60, 0))
 				Juice.Splat(bugLayer, bug.Button.Position + UDim2.fromOffset(-60, 0))
 				Juice.Banner(root, "BOSS DOWN!", Theme.TYPED, 58)
+				cheerFrom("BossDown")
 				rootFlash.BackgroundColor3 = Theme.TYPED
 				rootFlash.BackgroundTransparency = 0.6
 				Sfx.Play("BossDown")
@@ -517,8 +651,13 @@ function BattleController.Init()
 	clientName = Theme.Text(left, "", 16)
 	clientName.LayoutOrder = 2
 	Theme.Text(left, "ON CALL · LIVE DEMO", 12, Theme.MUTED).LayoutOrder = 3
-	reaction = Theme.Text(left, "", 14)
-	reaction.LayoutOrder = 4
+	bubbleStack = Instance.new("Frame")
+	bubbleStack.BackgroundTransparency = 1
+	bubbleStack.Size = UDim2.new(1, 0, 0, 0)
+	bubbleStack.AutomaticSize = Enum.AutomaticSize.Y
+	bubbleStack.LayoutOrder = 7
+	bubbleStack.Parent = left
+	Theme.List(bubbleStack, 6)
 	Theme.Text(left, "CLIENT MOOD", 12, Theme.MUTED).LayoutOrder = 5
 	moodFill = bar(left, Theme.MOOD, 6)
 
