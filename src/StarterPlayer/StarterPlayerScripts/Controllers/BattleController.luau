@@ -13,6 +13,7 @@ local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
+local Music = require(UI:WaitForChild("Music"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
@@ -179,6 +180,7 @@ local function announceWave(elapsed: number)
 			if bug.Wave > waveCount then
 				waveLabel.Text = "BOSS WAVE"
 				Sfx.Play("Banner")
+				Music.Play("Boss", 1.5)
 				Juice.Banner(root, "⚠ BOSS BUG INCOMING ⚠", Theme.BUG)
 			else
 				waveLabel.Text = `WAVE {bug.Wave} / {waveCount}`
@@ -349,6 +351,7 @@ local function onStarted(info: any)
 	end
 
 	renderConnection = RunService.RenderStepped:Connect(renderBugs)
+	Music.Play("Battle", 0.8)
 	gui.Enabled = true
 end
 
@@ -450,6 +453,7 @@ end
 
 local function onEnded(result: any, payout: any)
 	clearBattle()
+	Music.Stop(2)
 	local shipped = type(result) == "table" and result.Status == "Shipped"
 	if shipped then
 		Sfx.Play("Shipped")
@@ -500,6 +504,7 @@ function BattleController.Init()
 	rootFlash.Parent = root
 
 	Sfx.Preload()
+	Music.Preload()
 
 	-- Left: the client on a live call.
 	local left = Instance.new("Frame")
