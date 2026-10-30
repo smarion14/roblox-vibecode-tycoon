@@ -117,8 +117,9 @@ local function onStateSync(view: any)
 		end
 		shownUnits[component] = have
 		local need = recipe[component] or 0
-		local mark = if have >= need then "+" else "-"
-		table.insert(lines, `{mark} {GameConfig.STATION_NAMES[component]}  {have}/{need}`)
+		-- Cap the count at what the job needs: extra builds still stack into the payout, but "3/2" reads as a bug.
+		local mark = if have >= need then "✓" else "-"
+		table.insert(lines, `{mark} {GameConfig.STATION_NAMES[component]}  {math.min(have, need)}/{need}`)
 	end
 	recipeLabel.Text = table.concat(lines, "\n")
 	if grew then
