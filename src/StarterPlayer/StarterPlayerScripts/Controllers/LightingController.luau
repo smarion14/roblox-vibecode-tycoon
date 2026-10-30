@@ -48,11 +48,13 @@ local NIGHT: Look = {
 	Tint = Color3.fromRGB(230, 215, 255),
 	Contrast = 0.15,
 	Saturation = 0.15,
-	Bloom = 0.9,
+	Bloom = 0.45,
 }
 
 local UPDATE_SECONDS = 0.1
-local LIGHT_BRIGHTNESS = 2
+local LIGHT_BRIGHTNESS = 1.3
+-- Lit neon runs a little under its full color so it glows without blowing out at night.
+local NEON_NIGHT_SCALE = 0.72
 local OFF_COLOR_SCALE = 0.25
 local BLINK_CHANCE = 0.12 -- per update, each homelab status LED flickers off with this chance -- unlit neon keeps a dim tint so the fixtures still read as fixtures
 
@@ -97,7 +99,9 @@ local function apply(daylight: number)
 		end
 		local color = fixture:GetAttribute("NightColor")
 		if typeof(color) == "Color3" then
-			fixture.Color = Color3.new(color.R * OFF_COLOR_SCALE, color.G * OFF_COLOR_SCALE, color.B * OFF_COLOR_SCALE):Lerp(color, nightness)
+			local off = Color3.new(color.R * OFF_COLOR_SCALE, color.G * OFF_COLOR_SCALE, color.B * OFF_COLOR_SCALE)
+			local lit = Color3.new(color.R * NEON_NIGHT_SCALE, color.G * NEON_NIGHT_SCALE, color.B * NEON_NIGHT_SCALE)
+			fixture.Color = off:Lerp(lit, nightness)
 		end
 		fixture.Material = if lit then Enum.Material.Neon else Enum.Material.SmoothPlastic
 		local light = fixture:FindFirstChildOfClass("PointLight")
