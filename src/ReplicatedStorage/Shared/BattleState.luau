@@ -48,6 +48,29 @@ export type Loadout = {
 	Homing: boolean, -- client-side aim assist
 }
 
+-- Act 2 squad rules (GameConfig.SQUAD); declared here because pure modules cannot require GameConfig.
+export type WeaponRules = { Role: string, Interval: number, PerShot: number }
+
+export type SquadRules = {
+	ShipY: number,
+	ShipMaxSpeed: number,
+	ShipSlack: number,
+	HitRadius: number,
+	WingShieldRecharge: number,
+	Weapons: { Spread: WeaponRules, Beam: WeaponRules, Missile: WeaponRules },
+	ShieldRole: string,
+}
+
+export type SquadOptions = {
+	Wingmen: { string }, -- hired roles, each flying a wingman
+	EnemyKind: ("Crash" | "Lag")?,
+	BossVolleys: boolean,
+	Squad: SquadRules,
+}
+
+export type Weapon = "Ship" | "Spread" | "Beam" | "Missile"
+export type ShipSample = { T: number, X: number }
+
 export type BugState = "Pending" | "Squashed" | "Hit"
 export type BugKind = "Minion" | "Boss"
 export type BattleStatus = "Running" | "Shipped" | "Failed"
@@ -81,7 +104,12 @@ export type Battle = {
 	RollbackAvailable: boolean,
 	RollbackUsed: boolean,
 	FireInterval: number,
-	ShotsUsed: number,
+	WeaponShots: { [string]: number }, -- kills claimed per Weapon
+	ShipSamples: { ShipSample }, -- the last 2 s of ship positions, oldest first
+	SlowUntil: number,
+	WingShieldReadyAt: number,
+	Options: SquadOptions?, -- nil in Act 1
+	Rng: () -> number,
 	LastKillAt: number,
 	Bugs: { Bug },
 	Status: BattleStatus,
@@ -115,6 +143,10 @@ local MAX_QUALITY = 3
 local GRADE_VALUE = { S = 3, A = 2, B = 1, C = 0 }
 local SWAY = 0.025
 local FORMATION_ROWS = 3
+local SHIP_MIN_X = 0.04
+local SHIP_MAX_X = 0.96
+local SHIP_HISTORY = 2
+local SLOW_SPEED_SCALE = 0.5
 
 local BattleState = {}
 
@@ -199,7 +231,14 @@ function BattleState.RulesForAct(
 	return rules
 end
 
-function BattleState.New(startTime: number, avgQuality: number, loadout: Loadout, rules: BattleRules, rng: () -> number): Battle
+function BattleState.New(
+	startTime: number,
+	avgQuality: number,
+	loadout: Loadout,
+	rules: BattleRules,
+	rng: () -> number,
+	options: SquadOptions?
+): Battle
 	local bugs: { Bug } = {}
 	local extraBugs = math.floor((MAX_QUALITY - math.clamp(avgQuality, 0, MAX_QUALITY)) * rules.ExtraBugsPerMissingQuality)
 
@@ -275,7 +314,12 @@ function BattleState.New(startTime: number, avgQuality: number, loadout: Loadout
 		RollbackAvailable = loadout.Rollback,
 		RollbackUsed = false,
 		FireInterval = loadout.FireInterval,
-		ShotsUsed = 0,
+		WeaponShots = {},
+		ShipSamples = {},
+		SlowUntil = startTime,
+		WingShieldReadyAt = startTime,
+		Options = options,
+		Rng = rng,
 		LastKillAt = startTime,
 		Bugs = bugs,
 		Status = "Running",
@@ -300,6 +344,31 @@ local function settle(b: Battle)
 	b.Status = "Shipped"
 end
 
+local function hurt(b: Battle, penalty: number)
+	b.Mood -= penalty
+	b.Combo = 0
+	if b.Mood <= 0 and b.RollbackAvailable then
+		b.RollbackAvailable = false
+		b.RollbackUsed = true
+		b.Mood = b.Rules.RollbackMood
+	end
+end
+
+-- One hit on the player (a landing minion, later bullets and lag): loadout Shield first, then the shield
+-- wingman if hired and charged, else mood. Shields keep the streak alive.
+local function takeHit(b: Battle, now: number, penalty: number)
+	if b.Shield > 0 then
+		b.Shield -= 1
+		return
+	end
+	local options = b.Options
+	if options and now >= b.WingShieldReadyAt and table.find(options.Wingmen, options.Squad.ShieldRole) then
+		b.WingShieldReadyAt = now + options.Squad.WingShieldRecharge
+		return
+	end
+	hurt(b, penalty)
+end
+
 function BattleState.Tick(b: Battle, now: number)
 	if b.Status ~= "Running" then
 		return
@@ -308,16 +377,10 @@ function BattleState.Tick(b: Battle, now: number)
 		if bug.State == "Pending" and now > bug.ReachAt + b.Rules.LatencyGrace then
 			bug.State = "Hit"
 			b.Mistakes += 1
-			if b.Shield > 0 and bug.Kind == "Minion" then
-				b.Shield -= 1 -- the shield eats the hit; the streak survives
+			if bug.Kind == "Minion" then
+				takeHit(b, now, b.Rules.MoodHitPenalty)
 			else
-				b.Mood -= if bug.Kind == "Boss" then b.Rules.BossHitPenalty else b.Rules.MoodHitPenalty
-				b.Combo = 0
-				if b.Mood <= 0 and b.RollbackAvailable then
-					b.RollbackAvailable = false
-					b.RollbackUsed = true
-					b.Mood = b.Rules.RollbackMood
-				end
+				hurt(b, b.Rules.BossHitPenalty) -- no shield stops the boss
 			end
 		end
 	end
@@ -328,9 +391,65 @@ function BattleState.Tick(b: Battle, now: number)
 	settle(b)
 end
 
--- A shot hit a bug (the client reports the bug id). Valid only if the bug is on screen and not yet landed,
--- and the player can't have fired more shots than their fire rate allows.
-function BattleState.Kill(b: Battle, bugId: number, now: number): boolean
+-- The client streams its ship x. Clamped to the field and to how far the ship could have flown since the last
+-- sample (half speed while slowed), so a teleporting client gets nowhere. Act 1 has no ship hitbox.
+function BattleState.MoveShip(b: Battle, x: number, now: number)
+	local options = b.Options
+	if not options or x ~= x then
+		return
+	end
+	local squad = options.Squad
+	local samples = b.ShipSamples
+	x = math.clamp(x, SHIP_MIN_X, SHIP_MAX_X)
+	local last = samples[#samples]
+	if last then
+		local speed = squad.ShipMaxSpeed * (if now < b.SlowUntil then SLOW_SPEED_SCALE else 1)
+		local reach = speed * math.max(now - last.T, 0) + squad.ShipSlack
+		x = math.clamp(x, last.X - reach, last.X + reach)
+	end
+	table.insert(samples, { T = now, X = x })
+	while samples[1].T < now - SHIP_HISTORY do
+		table.remove(samples, 1)
+	end
+end
+
+-- Where the ship was at time t: the latest sample at or before t, else the oldest one, else mid-field.
+function BattleState.ShipXAt(b: Battle, t: number): number
+	local samples = b.ShipSamples
+	local x = if samples[1] then samples[1].X else 0.5
+	for _, sample in samples do
+		if sample.T > t then
+			break
+		end
+		x = sample.X
+	end
+	return x
+end
+
+-- Fire interval and kills per volley for a weapon, or nil if the battle doesn't have it (a wingman needs its hire).
+local function weaponRate(b: Battle, weapon: Weapon): (number?, number)
+	if weapon == "Ship" then
+		return b.FireInterval, 1
+	end
+	local options = b.Options
+	if not options then
+		return nil, 0
+	end
+	local weapons = options.Squad.Weapons
+	local rules = if weapon == "Spread"
+		then weapons.Spread
+		elseif weapon == "Beam" then weapons.Beam
+		elseif weapon == "Missile" then weapons.Missile
+		else nil
+	if not rules or not table.find(options.Wingmen, rules.Role) then
+		return nil, 0
+	end
+	return rules.Interval, rules.PerShot
+end
+
+-- A shot hit a bug (the client reports the bug id and weapon, Ship by default). Valid only if the bug is on screen
+-- and not yet landed, and that weapon can't have fired more shots than its rate allows.
+function BattleState.Kill(b: Battle, bugId: number, now: number, weapon: Weapon?): boolean
 	BattleState.Tick(b, now)
 	if b.Status ~= "Running" then
 		return false
@@ -343,12 +462,18 @@ function BattleState.Kill(b: Battle, bugId: number, now: number): boolean
 	if now < bug.SpawnAt + rules.VisibleDelay or now > bug.ReachAt + rules.LatencyGrace then
 		return false
 	end
-	local shotsFired = math.floor((now - b.StartTime) / b.FireInterval) + rules.ShotBudgetSlack
-	if b.ShotsUsed >= shotsFired then
+	local chosen: Weapon = weapon or "Ship"
+	local interval, perShot = weaponRate(b, chosen)
+	if not interval then
+		return false
+	end
+	local shotsFired = math.floor((now - b.StartTime) / interval) * perShot + rules.ShotBudgetSlack
+	local used = b.WeaponShots[chosen] or 0
+	if used >= shotsFired then
 		return false
 	end
 
-	b.ShotsUsed += 1
+	b.WeaponShots[chosen] = used + 1
 	b.Successes += 1
 	b.Combo += 1
 	b.MaxCombo = math.max(b.MaxCombo, b.Combo)

@@ -215,6 +215,23 @@ GameConfig.ACT_BATTLE = {
 	[2] = { ExtraBugsPerWave = 2, DiveTimeScale = 0.85, BossHp = 20 },
 } :: { [number]: { ExtraBugsPerWave: number, DiveTimeScale: number, BossHp: number } }
 
+-- Act 2 squad battle. Ship x is 0-1 across the field; speeds are field widths per second. Each hired role flies a
+-- wingman with its weapon (Interval seconds between volleys of PerShot kills); ShieldRole's wingman absorbs one
+-- hit, then recharges for WingShieldRecharge seconds.
+GameConfig.SQUAD = {
+	ShipY = 0.9,
+	ShipMaxSpeed = 2.6,
+	ShipSlack = 0.15,
+	HitRadius = 0.035,
+	WingShieldRecharge = 8,
+	Weapons = {
+		Spread = { Role = "FrontendUnits", Interval = 0.9, PerShot = 3 },
+		Beam = { Role = "BackendEndpoints", Interval = 1.6, PerShot = 4 },
+		Missile = { Role = "PromptTokens", Interval = 1.2, PerShot = 1 },
+	},
+	ShieldRole = "DatabaseTables",
+}
+
 -- Published cutscene animation ids (see docs/animations-publish-checklist.md). 0 = not published yet, and
 -- Actors falls back to a built-in animation or none.
 GameConfig.ANIMATIONS = {

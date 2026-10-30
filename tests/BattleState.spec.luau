@@ -232,4 +232,89 @@ tests["act tuning"] = function()
 	assert(BattleState.RulesForAct(RULES, nil).BossHp == RULES.BossHp)
 end
 
+local function squadOptions(wingmen: { string }): BattleState.SquadOptions
+	return { Wingmen = wingmen, EnemyKind = nil, BossVolleys = false, Squad = GameConfig.SQUAD }
+end
+
+local function squadBattle(wingmen: { string }): BattleState.Battle
+	return BattleState.New(0, 0, BARE, RULES, makeRng(), squadOptions(wingmen))
+end
+
+tests["act 1 battles are unchanged"] = function()
+	-- fingerprint of a fixed-seed Act 1 battle taken before squad options existed
+	local b = BattleState.New(0, 0, BARE, RULES, makeRng())
+	local sum = 0
+	for _, bug in b.Bugs do
+		sum += bug.SpawnX + bug.FormX + bug.DiveX + bug.ReachAt + bug.Side
+	end
+	assert(#b.Bugs == 27 and b.Mood == 70, `{#b.Bugs} bugs, mood {b.Mood}`)
+	assert(math.abs(sum - 798.4176) < 1e-6, `fingerprint {sum}`)
+	assert(b.Options == nil)
+end
+
+tests["ship moves are clamped to max speed"] = function()
+	local b = squadBattle({})
+	local t0 = 10
+	BattleState.MoveShip(b, 0.5, t0)
+	BattleState.MoveShip(b, 0.96, t0 + 0.05)
+	assert(BattleState.ShipXAt(b, t0 + 0.05) <= 0.5 + 2.6 * 0.05 + 0.15 + 1e-9)
+	BattleState.MoveShip(b, 5, t0 + 3)
+	assert(BattleState.ShipXAt(b, t0 + 3) == 0.96, "clamped to the field")
+end
+
+tests["ship x is looked up by time"] = function()
+	local b = squadBattle({})
+	assert(BattleState.ShipXAt(b, 1) == 0.5, "no samples yet")
+	local t0 = 10
+	BattleState.MoveShip(b, 0.3, t0)
+	BattleState.MoveShip(b, 0.4, t0 + 0.1)
+	assert(BattleState.ShipXAt(b, t0 + 0.05) == 0.3)
+	assert(BattleState.ShipXAt(b, t0 - 1) == 0.3, "before every sample")
+	assert(BattleState.ShipXAt(b, t0 + 0.2) == 0.4)
+end
+
+tests["wingman weapons need the hire"] = function()
+	local without = squadBattle({ "DatabaseTables" })
+	local bug = minions(without)[1]
+	local at = bug.SpawnAt + RULES.VisibleDelay + 0.1
+	assert(BattleState.Kill(without, bug.Id, at, "Spread") == false, "no frontend wingman")
+	assert(BattleState.Kill(newBattle(0), bug.Id, at, "Spread") == false, "act 1 has no wingmen")
+	local with = squadBattle({ "FrontendUnits" })
+	assert(BattleState.Kill(with, bug.Id, at, "Spread") == true)
+	assert(BattleState.Kill(with, bug.Id + 1, at, "Nope" :: any) == false, "unknown weapon")
+end
+
+tests["wingman weapons have their own budget"] = function()
+	local b = squadBattle({ "PromptTokens" })
+	local list = minions(b)
+	local t = 0
+	for _, bug in list do
+		t = math.max(t, bug.SpawnAt + RULES.VisibleDelay + 0.01)
+	end
+	local accepted = 0
+	for _, bug in list do
+		if BattleState.Kill(b, bug.Id, math.min(t, bug.ReachAt), "Missile") then
+			accepted += 1
+		end
+	end
+	local missile = GameConfig.SQUAD.Weapons.Missile
+	local budget = math.floor(t / missile.Interval) * missile.PerShot + RULES.ShotBudgetSlack
+	assert(accepted > 0 and accepted <= budget, `accepted {accepted} with budget {budget}`)
+end
+
+tests["wing shield absorbs a hit then recharges"] = function()
+	local b = squadBattle({ "DatabaseTables" })
+	local list = minions(b)
+	table.sort(list, function(x: BattleState.Bug, y: BattleState.Bug): boolean
+		return x.ReachAt < y.ReachAt
+	end)
+	local first = list[1].ReachAt + RULES.LatencyGrace + 0.01
+	local second = list[2].ReachAt + RULES.LatencyGrace + 0.01
+	assert(second - first < GameConfig.SQUAD.WingShieldRecharge, "fixture: landings 8 s apart")
+	BattleState.Tick(b, first)
+	assert(b.Mood == 70 and b.Mistakes == 1, `mood {b.Mood}`)
+	BattleState.Tick(b, second)
+	assert(b.Mood == 70 - RULES.MoodHitPenalty, `mood {b.Mood}`)
+end
+
 return tests
