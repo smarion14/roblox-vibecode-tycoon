@@ -513,7 +513,9 @@ function BattleState.MoveShip(b: Battle, x: number, now: number)
 	else
 		table.insert(samples, sample)
 	end
-	while samples[1].T < now - SHIP_HISTORY do
+	-- keep the newest sample older than the window as an anchor, so a quiet client's gap still resolves to the
+	-- last position it actually reported (the list stays bounded: window samples + 1)
+	while #samples >= 2 and samples[2].T < now - SHIP_HISTORY do
 		table.remove(samples, 1)
 	end
 end

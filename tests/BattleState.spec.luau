@@ -361,6 +361,14 @@ tests["ship bursts can't stack slack"] = function()
 	assert(#b.ShipSamples <= 3, `{#b.ShipSamples} samples`)
 end
 
+tests["a quiet client's gap resolves to its last reported position"] = function()
+	local b = squadBattle({})
+	BattleState.MoveShip(b, 0.2, 10)
+	BattleState.MoveShip(b, 0.8, 13)
+	assert(BattleState.ShipXAt(b, 12) == 0.2, `x {BattleState.ShipXAt(b, 12)}`)
+	assert(BattleState.ShipXAt(b, 13) == 0.8)
+end
+
 tests["slowed ship moves at half speed"] = function()
 	local b = squadBattle({})
 	b.SlowUntil = 11
