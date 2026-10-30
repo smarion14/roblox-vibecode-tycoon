@@ -86,7 +86,7 @@ There are four physical stations in the player's unit, one per component:
 - Speed and accuracy give the produced component a **quality grade** (C, B, A or S).
 - Each produced component unit stores its own grade (save as a count per component per grade). Quality changes payout only indirectly: it sets the deploy battle's starting difficulty, and that sets the score. *(My call.)*
 - Each project type has a **recipe**: how many of each component it needs. For example, a landing page is frontend-heavy, an API is backend-heavy, a game leans on prompt tokens, and an AI agent leans on the AI rig and the backend.
-- Stacking: components above the recipe minimum are allowed and add value to the shipment, the way songs stack in the reference.
+- **Upgrade, don't add** *(decided 2026-10-30, replaces stacking)*: once a part meets the recipe, another run at that station replaces your worst copy if the new grade is better and otherwise changes nothing. The station prompt reads "Improve (C)" so players know before they start. This removes the "grind your best station" payout exploit and keeps retry-to-improve. Better parts still pay off through an easier deploy battle.
 
 ### 4.2 Deploy battle (perform)
 
@@ -224,5 +224,5 @@ Nothing currently `require`s these modules. A server bootstrap `Script` is neede
 - Gamepad uses the touch chip mode.
 - About 6 players per server.
 - DataStore persistence.
-- Extra components beyond the recipe add value (stacking).
+- ~~Extra components beyond the recipe add value (stacking).~~ Replaced by upgrade-don't-add (see §4.1).
 - The group bonus does not affect leaderboards.

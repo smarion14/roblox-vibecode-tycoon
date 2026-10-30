@@ -33,14 +33,39 @@ tests["recipe"] = function()
 	assert(Economy.MeetsRecipe(inv, RECIPE) == true)
 end
 
-tests["add unit replaces a C"] = function()
+tests["build adds while the job still needs the part"] = function()
 	local inv = empty()
 	inv.FrontendUnits = counts(0, 0, 0, 1)
-	local upgraded = Economy.AddUnit(inv, "FrontendUnits", "A")
-	assert(upgraded.FrontendUnits.A == 1 and upgraded.FrontendUnits.C == 0)
-	local stacked = Economy.AddUnit(inv, "FrontendUnits", "C")
-	assert(stacked.FrontendUnits.C == 2)
-	assert(inv.FrontendUnits.C == 1 and inv.FrontendUnits.A == 0, "input mutated")
+	local built = Economy.BuildUnit(inv, "FrontendUnits", "B", 2)
+	assert(built.Outcome == "Added")
+	assert(built.Inventory.FrontendUnits.B == 1 and built.Inventory.FrontendUnits.C == 1)
+	assert(inv.FrontendUnits.B == 0, "input mutated")
+end
+
+tests["build on a complete part upgrades the worst one"] = function()
+	local inv = empty()
+	inv.FrontendUnits = counts(0, 0, 1, 1)
+	local built = Economy.BuildUnit(inv, "FrontendUnits", "A", 2)
+	assert(built.Outcome == "Upgraded" and built.Replaced == "C")
+	local grades = built.Inventory.FrontendUnits
+	assert(grades.A == 1 and grades.B == 1 and grades.C == 0)
+	assert(Economy.TotalUnits(built.Inventory) == 2, "an upgrade must never add a part")
+end
+
+tests["build that isn't better keeps what you have"] = function()
+	local inv = empty()
+	inv.FrontendUnits = counts(0, 0, 2, 0)
+	local same = Economy.BuildUnit(inv, "FrontendUnits", "B", 2)
+	assert(same.Outcome == "Kept" and same.Inventory.FrontendUnits.B == 2)
+	local worse = Economy.BuildUnit(inv, "FrontendUnits", "C", 2)
+	assert(worse.Outcome == "Kept" and worse.Inventory.FrontendUnits.C == 0)
+end
+
+tests["worst grade of a part"] = function()
+	local inv = empty()
+	assert(Economy.WorstGrade(inv, "FrontendUnits") == nil)
+	inv.FrontendUnits = counts(1, 0, 1, 0)
+	assert(Economy.WorstGrade(inv, "FrontendUnits") == "B")
 end
 
 tests["hires fill to recipe"] = function()

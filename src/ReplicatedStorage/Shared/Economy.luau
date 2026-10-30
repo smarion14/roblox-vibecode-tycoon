@@ -98,17 +98,44 @@ function Economy.MeetsRecipe(inv: Inventory, recipe: Recipe): boolean
 	return true
 end
 
-function Economy.AddUnit(inv: Inventory, component: string, grade: Grade): Inventory
+export type BuildOutcome = "Added" | "Upgraded" | "Kept"
+export type BuildResult = { Inventory: Inventory, Outcome: BuildOutcome, Replaced: Grade? }
+
+local WORST_FIRST: { Grade } = { "C", "B", "A", "S" }
+
+-- Lowest grade currently held for a component, or nil if there are none.
+function Economy.WorstGrade(inv: Inventory, component: string): Grade?
+	local grades = inv[component]
+	if not grades then
+		return nil
+	end
+	for _, grade in WORST_FIRST do
+		if grades[grade] > 0 then
+			return grade :: Grade
+		end
+	end
+	return nil
+end
+
+-- Upgrade, don't add: below the job's requirement a build adds a part; once the part is complete a build
+-- replaces the worst one if it is better, and otherwise changes nothing. Returns a new inventory.
+function Economy.BuildUnit(inv: Inventory, component: string, grade: Grade, needed: number): BuildResult
 	local result = copyInventory(inv)
 	local grades = result[component] or { S = 0, A = 0, B = 0, C = 0 }
 	result[component] = grades
 
-	-- A better unit replaces a C (a hire's work, or a sloppy earlier burst) instead of stacking on it.
-	if grade ~= "C" and grades.C > 0 then
-		grades.C -= 1
+	if unitCount(grades) < needed then
+		grades[grade] += 1
+		return { Inventory = result, Outcome = "Added", Replaced = nil }
 	end
-	grades[grade] += 1
-	return result
+
+	local worst: Grade? = Economy.WorstGrade(result, component)
+	if worst and GRADE_VALUE[grade] > GRADE_VALUE[worst] then
+		grades[worst] -= 1
+		grades[grade] += 1
+		return { Inventory = result, Outcome = "Upgraded", Replaced = worst :: Grade }
+	end
+	return { Inventory = result, Outcome = "Kept", Replaced = nil }
 end
 
 function Economy.ApplyHires(inv: Inventory, recipe: Recipe, hired: { [string]: boolean }): Inventory

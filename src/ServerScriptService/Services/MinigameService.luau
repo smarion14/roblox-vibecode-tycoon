@@ -7,7 +7,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Economy = require(Shared:WaitForChild("Economy"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local PatchPanel = require(Shared:WaitForChild("PatchPanel"))
 local RaidRebuild = require(Shared:WaitForChild("RaidRebuild"))
@@ -80,9 +79,7 @@ local function finish(player: Player, session: Session, accuracy: number, comple
 
 	local score = math.clamp(accuracy, 0, 1)
 	local grade: TypingJudge.Grade = TypingJudge.GradeFor(score, allDone)
-	StartupDataModule.Update(player, function(save)
-		save.Inventory = Economy.AddUnit(save.Inventory, session.Component, grade)
-	end)
+	local outcome, replaced = AssemblyService.BuildPart(player, session.Component, grade)
 	StartupDataModule.SetActivity(player, "Idle")
 	local labels = LABELS[session.Kind]
 	RemoteManager.FireClient(
@@ -94,7 +91,9 @@ local function finish(player: Player, session: Session, accuracy: number, comple
 		completed,
 		total,
 		labels.Progress,
-		labels.Score
+		labels.Score,
+		outcome,
+		replaced
 	)
 end
 

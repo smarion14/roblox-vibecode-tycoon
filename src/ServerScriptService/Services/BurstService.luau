@@ -119,9 +119,7 @@ local function finish(player: Player, burst: ActiveBurst)
 
 	local result = TypingJudge.JudgeBurst(burst.Prompts, burst.Submissions, burst.Rules)
 	local grade: TypingJudge.Grade = if result.Flagged then "C" else result.Grade
-	StartupDataModule.Update(player, function(save)
-		save.Inventory = Economy.AddUnit(save.Inventory, burst.Component, grade)
-	end)
+	local outcome, replaced = AssemblyService.BuildPart(player, burst.Component, grade)
 	StartupDataModule.SetActivity(player, "Idle")
 	RemoteManager.FireClient(
 		RemoteNames.BurstFinished,
@@ -132,7 +130,9 @@ local function finish(player: Player, burst: ActiveBurst)
 		result.Completed,
 		#burst.Texts,
 		"Prompts finished",
-		"Accuracy"
+		"Accuracy",
+		outcome,
+		replaced
 	)
 end
 

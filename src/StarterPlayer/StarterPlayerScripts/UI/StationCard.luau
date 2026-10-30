@@ -16,6 +16,8 @@ export type StationResult = {
 	Total: number,
 	ProgressLabel: string?, -- e.g. "Prompts finished", "Rounds cleared"
 	ScoreLabel: string?, -- e.g. "Accuracy", "Precision"
+	Outcome: string?, -- "Added" | "Upgraded" | "Kept"
+	Replaced: string?, -- grade swapped out on an upgrade
 }
 
 local AUTO_CLOSE_SECONDS = 8
@@ -192,12 +194,29 @@ function StationCard.Show(result: StationResult)
 		end
 		pause(0.5)
 
-		-- The part that goes into your inventory.
-		local earned = Theme.Text(card, `+1 {result.StationName}  ({result.Grade})`, 18, style.Color)
+		-- What happened to your parts: a new one, an upgrade, or nothing because you already had better.
+		local earnedText = `+1 {result.StationName}  ({result.Grade})`
+		local earnedColor = style.Color
+		if result.Outcome == "Upgraded" then
+			earnedText = `UPGRADED  {result.Replaced or "?"} → {result.Grade}`
+			earnedColor = Theme.TYPED
+		elseif result.Outcome == "Kept" then
+			earnedText = `Kept your {result.Replaced or "parts"}: no upgrade`
+			earnedColor = Theme.MUTED
+		end
+		local earned = Theme.Text(card, earnedText, 18, earnedColor)
 		earned.TextXAlignment = Enum.TextXAlignment.Center
 		earned.LayoutOrder = 4
 		slamIn(earned, 0.4)
-		Sfx.Play("PartEarned")
+		if result.Outcome == "Kept" then
+			Sfx.Play("KeyWrong")
+		else
+			Sfx.Play("PartEarned")
+		end
+		if result.Outcome == "Upgraded" then
+			Sfx.Play("PromptClean")
+			Juice.Pop(earned, 0.4)
+		end
 		pause(0.2)
 
 		local continue = Theme.Button(card, "Continue", 16)
