@@ -107,7 +107,7 @@ local function onDeployTerminal(player: Player)
 		clockStart,
 		Economy.AverageQuality(save.Inventory),
 		loadout,
-		GameConfig.BATTLE_RULES,
+		BattleState.RulesForAct(GameConfig.BATTLE_RULES, GameConfig.ACT_BATTLE[save.Act]),
 		function(): number
 			return rng:NextNumber()
 		end

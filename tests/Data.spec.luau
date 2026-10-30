@@ -78,7 +78,7 @@ tests["remote names map to themselves"] = function()
 		assert(key == value, `{key} maps to {value}`)
 		count += 1
 	end
-	assert(count == 17, `expected 17 remote names, got {count}`)
+	assert(count == 20, `expected 20 remote names, got {count}`)
 end
 
 tests["intro contains the exact doubter line"] = function()
@@ -101,6 +101,27 @@ tests["every station has a minigame"] = function()
 		assert(kind and known[kind], `{component} has no minigame`)
 	end
 	assert(GameConfig.STATION_MINIGAMES.FrontendUnits == "Typing")
+end
+
+tests["act 1 ending uses the exact brother lines"] = function()
+	local StoryText = require("../src/ReplicatedStorage/Shared/StoryText")
+	local wanted = {
+		"...Okay. You can stay.",
+		"Don't make it weird.",
+		"A buddy of mine is subletting a tiny office downtown. First month's free. Take it. Get off my couch.",
+	}
+	for _, text in wanted do
+		local found = false
+		for _, line in StoryText.ACT1_END do
+			if line.Speaker == "Brother" and line.Text == text then
+				found = true
+			end
+		end
+		assert(found, `missing brother line: {text}`)
+	end
+	assert(StoryText.ACT2_INTRO_TEXT == "Two weeks later…")
+	assert(StoryText.BROTHER_TEXT_ACT2 == "don't burn it down")
+	assert(StoryText.ACT_TITLES.Act2 == "ACT 2: MOVE OUT")
 end
 
 return tests

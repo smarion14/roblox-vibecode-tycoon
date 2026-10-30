@@ -18,6 +18,9 @@ local RemoteNames = {
 	MinigameStart = "MinigameStart",
 	MinigameAction = "MinigameAction",
 	MinigameUpdate = "MinigameUpdate",
+	CutsceneDone = "CutsceneDone",
+	SetStartupName = "SetStartupName",
+	NameResult = "NameResult",
 }
 
 return RemoteNames

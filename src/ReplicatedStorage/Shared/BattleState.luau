@@ -177,6 +177,28 @@ function BattleState.BugPosition(bug: Bug, t: number): (number, number)
 	return x, lerp(bug.FormY, 1.05, dive ^ 1.4)
 end
 
+-- A copy of the rules tuned for an act: more bugs per wave, faster dives, a tougher boss.
+function BattleState.RulesForAct(
+	base: BattleRules,
+	overrides: { ExtraBugsPerWave: number, DiveTimeScale: number, BossHp: number }?
+): BattleRules
+	local rules = table.clone(base)
+	local waves: { WaveRules } = {}
+	for _, wave in base.Waves do
+		table.insert(waves, table.clone(wave))
+	end
+	rules.Waves = waves
+	if overrides then
+		for _, wave in rules.Waves do
+			wave.Count += overrides.ExtraBugsPerWave
+			wave.DiveTime *= overrides.DiveTimeScale
+		end
+		rules.BossMinionDiveTime *= overrides.DiveTimeScale
+		rules.BossHp = overrides.BossHp
+	end
+	return rules
+end
+
 function BattleState.New(startTime: number, avgQuality: number, loadout: Loadout, rules: BattleRules, rng: () -> number): Battle
 	local bugs: { Bug } = {}
 	local extraBugs = math.floor((MAX_QUALITY - math.clamp(avgQuality, 0, MAX_QUALITY)) * rules.ExtraBugsPerMissingQuality)

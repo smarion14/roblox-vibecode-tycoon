@@ -222,4 +222,14 @@ tests["snapshot"] = function()
 	assert(snapshot.BugStates[bug.Id] == "Squashed" and snapshot.BossHp == RULES.BossHp and snapshot.Shield == 0)
 end
 
+tests["act tuning"] = function()
+	local tuned = BattleState.RulesForAct(RULES, GameConfig.ACT_BATTLE[2])
+	assert(tuned.Waves[1].Count == RULES.Waves[1].Count + 2)
+	assert(math.abs(tuned.Waves[1].DiveTime - RULES.Waves[1].DiveTime * 0.85) < 1e-9)
+	assert(math.abs(tuned.BossMinionDiveTime - RULES.BossMinionDiveTime * 0.85) < 1e-9)
+	assert(tuned.BossHp == 20)
+	assert(RULES.BossHp ~= 20 and RULES.Waves[1].Count ~= tuned.Waves[1].Count, "base rules mutated")
+	assert(BattleState.RulesForAct(RULES, nil).BossHp == RULES.BossHp)
+end
+
 return tests

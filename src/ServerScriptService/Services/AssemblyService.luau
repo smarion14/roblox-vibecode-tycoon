@@ -92,6 +92,7 @@ function AssemblyService.SettleDeploy(player: Player, result: BattleState.Battle
 		save.Cash += payout
 		save.Valuation += Economy.ValuationGain(score)
 		save.DeploysShipped += 1
+		save.ActDeploys += 1
 		save.Inventory = Economy.EmptyInventory(GameConfig.COMPONENTS)
 		save.ActiveJobId = nil
 	end)
@@ -121,7 +122,7 @@ local function onAcceptJob(player: Player, clientId: any)
 	end
 
 	local client: ClientDef? = nil
-	for _, available in Economy.AvailableClients(GameConfig.CLIENTS, save.DeploysShipped) do
+	for _, available in Economy.AvailableClients(GameConfig.CLIENTS, save.Act, save.ActDeploys) do
 		if available.Id == clientId then
 			client = available
 		end
@@ -148,7 +149,7 @@ local function onJobPhone(player: Player)
 		RemoteNames.OpenUI,
 		player,
 		"Jobs",
-		Economy.AvailableClients(GameConfig.CLIENTS, save.DeploysShipped)
+		Economy.AvailableClients(GameConfig.CLIENTS, save.Act, save.ActDeploys)
 	)
 end
 

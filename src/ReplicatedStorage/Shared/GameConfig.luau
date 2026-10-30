@@ -6,7 +6,8 @@ export type ClientDef = {
 	Name: string,
 	Project: string,
 	TierMultiplier: number,
-	UnlockAtDeploys: number,
+	UnlockAtDeploys: number, -- counted on deploys shipped within the client's act
+	Act: number,
 }
 
 export type GearDef = {
@@ -35,12 +36,18 @@ GameConfig.STATION_NAMES = {
 
 GameConfig.RECIPES = {
 	LandingPage = { FrontendUnits = 2, BackendEndpoints = 1, DatabaseTables = 1, PromptTokens = 1 },
+	MobileApp = { FrontendUnits = 2, BackendEndpoints = 2, DatabaseTables = 1, PromptTokens = 1 },
+	Game = { FrontendUnits = 1, BackendEndpoints = 1, DatabaseTables = 1, PromptTokens = 3 },
 } :: { [string]: { [string]: number } }
 
 GameConfig.CLIENTS = {
-	{ Id = "PawsAndSuds", Name = "Paws & Suds Grooming", Project = "LandingPage", TierMultiplier = 20, UnlockAtDeploys = 0 },
-	{ Id = "RollingTaco", Name = "Rolling Taco Truck", Project = "LandingPage", TierMultiplier = 30, UnlockAtDeploys = 2 },
-	{ Id = "CornerBakery", Name = "Corner Bakery", Project = "LandingPage", TierMultiplier = 40, UnlockAtDeploys = 4 },
+	{ Id = "PawsAndSuds", Name = "Paws & Suds Grooming", Project = "LandingPage", TierMultiplier = 20, UnlockAtDeploys = 0, Act = 1 },
+	{ Id = "RollingTaco", Name = "Rolling Taco Truck", Project = "LandingPage", TierMultiplier = 30, UnlockAtDeploys = 2, Act = 1 },
+	{ Id = "CornerBakery", Name = "Corner Bakery", Project = "LandingPage", TierMultiplier = 40, UnlockAtDeploys = 4, Act = 1 },
+	-- Act 2: startups and agencies, unlocked by deploys shipped since moving into the office.
+	{ Id = "PocketFit", Name = "PocketFit Fitness App", Project = "MobileApp", TierMultiplier = 55, UnlockAtDeploys = 0, Act = 2 },
+	{ Id = "PixelForge", Name = "PixelForge Indie Studio", Project = "Game", TierMultiplier = 70, UnlockAtDeploys = 2, Act = 2 },
+	{ Id = "BrewCrew", Name = "BrewCrew Coffee Rewards", Project = "MobileApp", TierMultiplier = 85, UnlockAtDeploys = 4, Act = 2 },
 } :: { ClientDef }
 
 GameConfig.GEAR = {
@@ -148,6 +155,14 @@ GameConfig.DAY_CYCLE = {
 	DayLengthSeconds = 720,
 	StartClock = 9,
 }
+
+-- Act 2 ends when valuation reaches its starting value plus this step.
+GameConfig.ACT2 = { ValuationStep = 1.5 }
+
+-- Deploy battle difficulty per act, applied on top of BATTLE_RULES.
+GameConfig.ACT_BATTLE = {
+	[2] = { ExtraBugsPerWave = 2, DiveTimeScale = 0.85, BossHp = 20 },
+} :: { [number]: { ExtraBugsPerWave: number, DiveTimeScale: number, BossHp: number } }
 
 GameConfig.STARTING_VALUATION = 1.0
 GameConfig.RENT_GOAL = 1500

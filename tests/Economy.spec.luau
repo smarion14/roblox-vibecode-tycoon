@@ -92,9 +92,13 @@ tests["valuation gain"] = function()
 	assert(math.abs(Economy.ValuationGain(9) - 0.1) < 1e-9)
 end
 
-tests["clients unlock"] = function()
-	assert(#Economy.AvailableClients(GameConfig.CLIENTS, 0) == 1)
-	assert(#Economy.AvailableClients(GameConfig.CLIENTS, 4) == 3)
+tests["clients by act"] = function()
+	local clients = GameConfig.CLIENTS
+	assert(#Economy.AvailableClients(clients, 1, 0) == 1)
+	assert(#Economy.AvailableClients(clients, 1, 4) == 3)
+	local act2 = Economy.AvailableClients(clients, 2, 0)
+	assert(#act2 == 1 and act2[1].Id == "PocketFit")
+	assert(#Economy.AvailableClients(clients, 2, 4) == 3)
 end
 
 tests["gear"] = function()

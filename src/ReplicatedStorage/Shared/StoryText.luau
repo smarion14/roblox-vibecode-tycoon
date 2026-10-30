@@ -29,4 +29,25 @@ StoryText.RENT_PAID = {
 
 StoryText.ACT1_COMPLETE = "Act 1 complete. To be continued."
 
+-- Act 1 ending cutscene (after paying rent). The last line points to the office for Act 2.
+StoryText.ACT1_END = {
+	{ Speaker = "Brother", Text = "...Okay. You can stay." },
+	{ Speaker = "Brother", Text = "Don't make it weird." },
+	{ Speaker = "Brother", Text = "A buddy of mine is subletting a tiny office downtown. First month's free. Take it. Get off my couch." },
+} :: { { Speaker: string, Text: string } }
+
+-- Act 1 opening cutscene lines.
+StoryText.ACT1_INTRO = {
+	{ Speaker = "Brother", Text = "That's not coding. That's autocomplete in a hoodie." },
+	{ Speaker = "Brother", Text = "You've got one month to make rent or you're out." },
+} :: { { Speaker: string, Text: string } }
+
+StoryText.ACT2_INTRO_TEXT = "Two weeks later…"
+StoryText.BROTHER_TEXT_ACT2 = "don't burn it down"
+StoryText.ACT_TITLES = {
+	Act1 = "ACT 1: MAKE RENT",
+	Act1Done = "ACT 1 COMPLETE",
+	Act2 = "ACT 2: MOVE OUT",
+}
+
 return StoryText

@@ -13,6 +13,7 @@ export type ClientDef = {
 	Project: string,
 	TierMultiplier: number,
 	UnlockAtDeploys: number,
+	Act: number,
 }
 
 export type GearDef = {
@@ -179,10 +180,11 @@ function Economy.ValuationGain(score: number): number
 	return VALUATION_GAIN_PER_SCORE * math.clamp(score, 0, MAX_SCORE)
 end
 
-function Economy.AvailableClients(clients: { ClientDef }, deploysShipped: number): { ClientDef }
+-- Clients of the player's current act whose unlock count is met (deploys shipped within this act).
+function Economy.AvailableClients(clients: { ClientDef }, act: number, actDeploys: number): { ClientDef }
 	local available: { ClientDef } = {}
 	for _, client in clients do
-		if deploysShipped >= client.UnlockAtDeploys then
+		if client.Act == act and actDeploys >= client.UnlockAtDeploys then
 			table.insert(available, client)
 		end
 	end
