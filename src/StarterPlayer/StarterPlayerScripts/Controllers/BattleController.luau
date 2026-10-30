@@ -53,7 +53,9 @@ local INSTRUCTION_TOUCH = "Drag to move. Your app fires on its own. Don't let bu
 local INSTRUCTION_SQUAD = " Your squad flies with you. Dodge the boss's bullets."
 
 -- Act 2 squad
-local WING_OFFSETS = { -0.14, -0.07, 0.07, 0.14 } -- wingman slots beside the ship, filled in role order
+-- Wingman slots, filled centre-out. The server sends hires in GameConfig.COMPONENTS order, so a given hire set
+-- always gets the same slots.
+local WING_OFFSETS = { -0.07, 0.07, -0.14, 0.14 }
 local WING_Y = SHIP_Y + 0.02
 local SPREAD_DEGREES = 15
 local BEAM_HALF_WIDTH = 0.03
@@ -398,9 +400,12 @@ local function fireBeam(x: number, elapsed: number)
 	Sfx.Play("BossHit", 1.6)
 
 	local hits = 0
+	-- the boss is wide: the beam hits anywhere across its hit box, not just its centre
+	local bossReach = BEAM_HALF_WIDTH + BOSS_HIT_PX.X / math.max(field.AbsoluteSize.X, 1)
 	for _, view in liveTargets(elapsed) do
 		local bx, by = BattleState.BugPosition(view.Bug, elapsed)
-		if math.abs(bx - x) <= BEAM_HALF_WIDTH and by < WING_Y then
+		local reach = if view.Bug.Kind == "Boss" then bossReach else BEAM_HALF_WIDTH
+		if math.abs(bx - x) <= reach and by < WING_Y then
 			Juice.Spark(field, UDim2.fromScale(bx, by), Theme.ACCENT)
 			onBulletHit(view, "Beam")
 			hits += 1

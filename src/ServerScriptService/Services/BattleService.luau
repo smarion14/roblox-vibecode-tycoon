@@ -114,8 +114,9 @@ local function endBattle(player: Player, active: ActiveBattle)
 	RemoteManager.FireClient(RemoteNames.BattleEnded, player, result, payout, Economy.PerformanceGrade(score))
 end
 
-local function afterInput(player: Player, active: ActiveBattle)
-	pushUpdate(player, active, true)
+-- force: only for accepted input, so a client spamming invalid claims can't pull a snapshot per call.
+local function afterInput(player: Player, active: ActiveBattle, force: boolean)
+	pushUpdate(player, active, force)
 	if active.Battle.Status ~= "Running" then
 		endBattle(player, active)
 	end
@@ -248,8 +249,8 @@ local function onShotHit(player: Player, bugId: any, weapon: any)
 	if not active or not active.Running then
 		return
 	end
-	BattleState.Kill(active.Battle, bugId, os.clock(), chosen)
-	afterInput(player, active)
+	local killed = BattleState.Kill(active.Battle, bugId, os.clock(), chosen)
+	afterInput(player, active, killed)
 end
 
 -- The client streams its ship x (0-1 across the field); BattleState clamps it to what the ship could have flown.
