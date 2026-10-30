@@ -8,6 +8,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local Juice = require(script.Parent:WaitForChild("Juice"))
+local Sfx = require(script.Parent:WaitForChild("Sfx"))
 local Theme = require(script.Parent:WaitForChild("Theme"))
 
 export type Mode = "Keyboard" | "Touch"
@@ -21,8 +22,6 @@ export type TypingField = {
 	OnPartial: ((partial: string) -> ())?,
 }
 
-local CLICK_SOUND = "rbxasset://sounds/clickfast.wav"
-local SUCCESS_SOUND = "rbxasset://sounds/electronicpingshort.wav"
 local SUCCESS_TEXT = "CLEAN ✓"
 
 local TypingInput = {}
@@ -137,21 +136,8 @@ local function createKeyboard(parent: GuiObject): TypingField
 	box.ZIndex = 5
 	box.Parent = holder
 
-	local click = Instance.new("Sound")
-	click.SoundId = CLICK_SOUND
-	click.Volume = 0.4
-	click.Parent = holder
 
-	local wrong = Instance.new("Sound")
-	wrong.SoundId = CLICK_SOUND
-	wrong.PlaybackSpeed = 0.55
-	wrong.Volume = 0.6
-	wrong.Parent = holder
 
-	local done = Instance.new("Sound")
-	done.SoundId = SUCCESS_SOUND
-	done.Volume = 0.5
-	done.Parent = holder
 
 	-- Colours every letter for the typed buffer and slides the cursor under the next one.
 	local function paint(typed: string)
@@ -219,18 +205,18 @@ local function createKeyboard(parent: GuiObject): TypingField
 		local letter = letters[#typed]
 		if letter and #typed == typedLength + 1 then
 			if string.sub(typed, #typed, #typed) == letter.Char then
-				click:Play()
+				Sfx.Play("KeyClick")
 				Juice.Hop(letter.Label)
 				Juice.Spark(lettersFrame, letter.Home + UDim2.fromOffset(letter.Label.Size.X.Offset / 2, 0), Theme.TYPED)
 			else
-				wrong:Play()
+				Sfx.Play("KeyWrong")
 				Juice.Shake(letter.Label, flash)
 			end
 		end
 		typedLength = #typed
 
 		if prompt ~= "" and typed == prompt then
-			done:Play()
+			Sfx.Play("PromptClean")
 			local labels: { GuiObject } = {}
 			for _, each in letters do
 				table.insert(labels, each.Label)
@@ -352,9 +338,11 @@ local function createTouch(parent: GuiObject): TypingField
 				chip.Active = false
 				chip.TextTransparency = 0.6
 				if word == expected[#buffer + 1] then
+					Sfx.Play("ChipTap")
 					Juice.Pop(chip, 0.15)
 					Juice.Spark(holder, UDim2.fromScale(math.min(#buffer / math.max(wordCount, 1) + 0.05, 0.95), 0.12), Theme.TYPED)
 				else
+					Sfx.Play("KeyWrong")
 					Juice.Shake(typedLabel, flash)
 				end
 				table.insert(buffer, word)
@@ -362,6 +350,7 @@ local function createTouch(parent: GuiObject): TypingField
 				selectNextChip()
 				if #buffer >= wordCount then
 					if table.concat(buffer, " ") == table.concat(expected, " ") then
+						Sfx.Play("PromptClean")
 						Juice.Bounce(typedLabel, holder, SUCCESS_TEXT)
 					end
 					local onSubmit = field.OnSubmit
@@ -448,15 +437,6 @@ function TypingInput.CreateWordCatcher(parent: GuiObject): WordCatcher
 	box.ZIndex = 5
 	box.Parent = holder
 
-	local click = Instance.new("Sound")
-	click.SoundId = CLICK_SOUND
-	click.Volume = 0.4
-	click.Parent = holder
-	local wrong = Instance.new("Sound")
-	wrong.SoundId = CLICK_SOUND
-	wrong.PlaybackSpeed = 0.55
-	wrong.Volume = 0.6
-	wrong.Parent = holder
 
 	local letters: { TextLabel } = {}
 
@@ -481,7 +461,7 @@ function TypingInput.CreateWordCatcher(parent: GuiObject): WordCatcher
 		if onWord and onWord(word) then
 			Juice.Pop(row, 0.2)
 		else
-			wrong:Play()
+			Sfx.Play("KeyWrong")
 			Juice.Shake(row, flash)
 		end
 		clearLetters()
@@ -519,7 +499,7 @@ function TypingInput.CreateWordCatcher(parent: GuiObject): WordCatcher
 			letter.LayoutOrder = index
 			letter.Rotation = math.random(-14, 14)
 			table.insert(letters, letter)
-			click:Play()
+			Sfx.Play("KeyClick")
 			Juice.Pop(letter, 0.7)
 		end
 

@@ -13,6 +13,7 @@ local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
+local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 local TypingInput = require(UI:WaitForChild("TypingInput"))
 
@@ -38,7 +39,6 @@ local RESULT_SECONDS = 3
 local BUG_LANES = 5
 local DANGER_TRAVEL = 0.75 -- past this share of the path a bug starts pulsing as a warning
 local PRAISE_CHANCE = 0.45
-local SQUASH_SOUND = "rbxasset://sounds/electronicpingshort.wav"
 local INSTRUCTION_KEYBOARD = "Bugs crawl toward YOUR CODE. Type a bug's name + SPACE to squash it."
 local INSTRUCTION_TOUCH = "Bugs crawl toward YOUR CODE. Tap a bug to squash it."
 
@@ -75,7 +75,6 @@ local instructionLabel: TextLabel
 local inputHolder: Frame
 local bugLayer: Frame
 local resultLabel: TextLabel
-local squashSound: Sound
 
 local catcher: TypingInput.WordCatcher? = nil
 local mode: TypingInput.Mode = "Keyboard"
@@ -179,9 +178,11 @@ local function announceWave(elapsed: number)
 			announcedWave = bug.Wave
 			if bug.Wave > waveCount then
 				waveLabel.Text = "BOSS WAVE"
+				Sfx.Play("Banner")
 				Juice.Banner(root, "⚠ BOSS BUG INCOMING ⚠", Theme.BUG)
 			else
 				waveLabel.Text = `WAVE {bug.Wave} / {waveCount}`
+				Sfx.Play("Banner")
 				Juice.Banner(root, `WAVE {bug.Wave}`, Theme.MOOD)
 			end
 			Juice.Pop(waveLabel, 0.4)
@@ -357,6 +358,7 @@ local function celebrateCombo(combo: number)
 	comboLabel.TextColor3 = if combo >= 10 then Theme.TYPED elseif combo >= 5 then Theme.MOOD else Theme.ACCENT
 	local callout = COMBO_CALLOUTS[combo]
 	if callout then
+		Sfx.Play("ComboCallout")
 		Juice.Banner(root, callout, if combo >= 10 then Theme.TYPED else Theme.ACCENT, if combo >= 10 then 54 else 46)
 		for _ = 1, 6 do
 			Juice.Spark(comboLabel, UDim2.fromScale(math.random(), 0.5), Theme.ACCENT)
@@ -366,7 +368,7 @@ end
 
 local function onBugSquashed(bug: BugView)
 	squashedOnce = true
-	squashSound:Play()
+	Sfx.Play("Splat")
 	Juice.Splat(bugLayer, bug.Button.Position)
 	if math.random() < PRAISE_CHANCE then
 		Juice.FloatText(bugLayer, bug.Button.Position + UDim2.fromOffset(0, -30), PRAISE[math.random(1, #PRAISE)], Theme.TYPED)
@@ -377,7 +379,8 @@ local function onBossHit(bug: BugView, newHp: number)
 	bug.Hp = newHp
 	bug.LastHitOffset = serverElapsed()
 	bug.Button.Text = bossText(bug)
-	squashSound:Play()
+	Sfx.Play("BossHit")
+	Sfx.Play("Splat")
 	Juice.Shake(bug.Button, nil)
 	Juice.FloatText(bugLayer, bug.Button.Position + UDim2.fromOffset(0, -40), "CRACK!", Theme.MOOD)
 	for _ = 1, 5 do
@@ -427,7 +430,8 @@ local function onUpdate(snapshot: any)
 				Juice.Banner(root, "BOSS DOWN!", Theme.TYPED, 58)
 				rootFlash.BackgroundColor3 = Theme.TYPED
 				rootFlash.BackgroundTransparency = 0.6
-				squashSound:Play()
+				Sfx.Play("BossDown")
+				Sfx.Play("BossHit")
 				task.delay(0.15, function()
 					rootFlash.BackgroundTransparency = 1
 				end)
@@ -436,6 +440,7 @@ local function onUpdate(snapshot: any)
 			end
 		elseif state == "Hit" then
 			-- Contact: a bug got through. Shake the whole screen and flash it red.
+			Sfx.Play("BugGotThrough")
 			Juice.Shake(root, rootFlash)
 			Juice.FloatText(moodFill, UDim2.fromScale(0.5, -1.5), "OUCH", Theme.BUG)
 		end
@@ -447,6 +452,7 @@ local function onEnded(result: any, payout: any)
 	clearBattle()
 	local shipped = type(result) == "table" and result.Status == "Shipped"
 	if shipped then
+		Sfx.Play("Shipped")
 		Juice.Banner(root, "SHIPPED!", Theme.TYPED, 64)
 		for _ = 1, 16 do
 			Juice.Spark(root, UDim2.fromScale(math.random(), math.random() * 0.6 + 0.2), Theme.TYPED)
@@ -493,10 +499,7 @@ function BattleController.Init()
 	rootFlash.ZIndex = 8
 	rootFlash.Parent = root
 
-	squashSound = Instance.new("Sound")
-	squashSound.SoundId = SQUASH_SOUND
-	squashSound.Volume = 0.35
-	squashSound.Parent = root
+	Sfx.Preload()
 
 	-- Left: the client on a live call.
 	local left = Instance.new("Frame")
