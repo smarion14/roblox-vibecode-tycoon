@@ -92,6 +92,12 @@ GameConfig.BATTLE_RULES = {
 	MaxCharsPerSecond = 20,
 }
 
+-- Time of day: one full day every DayLengthSeconds, starting at StartClock (24h). Night runs about 18:00-06:00.
+GameConfig.DAY_CYCLE = {
+	DayLengthSeconds = 720,
+	StartClock = 9,
+}
+
 GameConfig.STARTING_VALUATION = 1.0
 GameConfig.RENT_GOAL = 1500
 GameConfig.MAX_PLAYERS = 6

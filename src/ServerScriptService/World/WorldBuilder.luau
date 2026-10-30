@@ -68,6 +68,17 @@ local function interactable(target: BasePart, tag: string, actionText: string, o
 	CollectionService:AddTag(target, tag)
 end
 
+-- Building lights that only switch on at night. LightingController toggles everything with this tag.
+local function nightLight(target: BasePart, color: Color3, range: number)
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Range = range
+	light.Brightness = 2
+	light.Parent = target
+	target:SetAttribute("NightColor", color)
+	CollectionService:AddTag(target, "NightLight")
+end
+
 local function glow(target: BasePart, color: Color3, range: number)
 	local light = Instance.new("PointLight")
 	light.Color = color
@@ -118,7 +129,14 @@ local function buildUnit(floor: Folder, index: number, origin: CFrame): Model
 	part(unit, "LeftWall", Vector3.new(1, WALL_HEIGHT, UNIT_SIZE), origin * CFrame.new(-half, WALL_HEIGHT / 2, 0), COLOR_WALL, Enum.Material.Concrete)
 	part(unit, "RightWall", Vector3.new(1, WALL_HEIGHT, UNIT_SIZE), origin * CFrame.new(half, WALL_HEIGHT / 2, 0), COLOR_WALL, Enum.Material.Concrete)
 	local trim = part(unit, "NeonTrim", Vector3.new(UNIT_SIZE, 0.4, 0.4), origin * CFrame.new(0, WALL_HEIGHT - 0.5, -half + 0.8), COLOR_PINK, Enum.Material.Neon)
-	glow(trim, COLOR_PINK, 24)
+	nightLight(trim, COLOR_PINK, 24)
+	local leftTrim = part(unit, "NeonTrimLeft", Vector3.new(0.4, 0.4, UNIT_SIZE), origin * CFrame.new(-half + 0.8, WALL_HEIGHT - 0.5, 0), COLOR_CYAN, Enum.Material.Neon)
+	nightLight(leftTrim, COLOR_CYAN, 18)
+	local rightTrim = part(unit, "NeonTrimRight", Vector3.new(0.4, 0.4, UNIT_SIZE), origin * CFrame.new(half - 0.8, WALL_HEIGHT - 0.5, 0), COLOR_CYAN, Enum.Material.Neon)
+	nightLight(rightTrim, COLOR_CYAN, 18)
+	-- Sign over the open front, lit at night.
+	local sign = part(unit, "UnitSign", Vector3.new(14, 2, 0.4), origin * CFrame.new(0, WALL_HEIGHT + 1.5, half - 1), COLOR_AMBER, Enum.Material.Neon)
+	nightLight(sign, COLOR_AMBER, 20)
 
 	-- Act 1: the sibling's couch and a folding table.
 	part(unit, "Couch", Vector3.new(10, 2.5, 4), origin * CFrame.new(-10, 1.25, 12), COLOR_FURNITURE, Enum.Material.Fabric)
@@ -158,19 +176,31 @@ local function buildUnit(floor: Folder, index: number, origin: CFrame): Model
 	return unit
 end
 
+-- Corridor street lamps between the two rows of units, lit at night.
+local function buildLamps(floor: Folder, rowWidth: number)
+	local count = 6
+	for index = 1, count do
+		local x = -rowWidth / 2 + (index - 0.5) * (rowWidth / count)
+		part(floor, "LampPost", Vector3.new(0.6, 12, 0.6), CFrame.new(x, 5, 0), COLOR_WALL, Enum.Material.Metal)
+		local head = part(floor, "LampHead", Vector3.new(2.4, 0.6, 2.4), CFrame.new(x, 11.2, 0), COLOR_CYAN, Enum.Material.Neon)
+		nightLight(head, Color3.fromRGB(200, 230, 255), 32)
+	end
+end
+
+-- Starting values only: LightingController on each client drives the day/night cycle from here.
 local function applyLighting()
-	Lighting.ClockTime = 0
-	Lighting.Brightness = 1
-	Lighting.Ambient = Color3.fromRGB(40, 25, 60)
-	Lighting.OutdoorAmbient = Color3.fromRGB(30, 20, 50)
-	Lighting.FogColor = Color3.fromRGB(20, 10, 35)
+	Lighting.ClockTime = GameConfig.DAY_CYCLE.StartClock
+	Lighting.Brightness = 2.5
+	Lighting.GlobalShadows = true
+	Lighting.Ambient = Color3.fromRGB(120, 112, 135)
+	Lighting.OutdoorAmbient = Color3.fromRGB(140, 132, 155)
 
 	local atmosphere = Instance.new("Atmosphere")
-	atmosphere.Density = 0.35
-	atmosphere.Color = Color3.fromRGB(120, 60, 160)
-	atmosphere.Decay = Color3.fromRGB(40, 20, 70)
-	atmosphere.Glare = 0.2
-	atmosphere.Haze = 2
+	atmosphere.Density = 0.25
+	atmosphere.Color = Color3.fromRGB(205, 185, 225)
+	atmosphere.Decay = Color3.fromRGB(150, 120, 190)
+	atmosphere.Glare = 0.3
+	atmosphere.Haze = 1.2
 	atmosphere.Parent = Lighting
 
 	local bloom = Instance.new("BloomEffect")
@@ -215,6 +245,7 @@ function WorldBuilder.BuildFloor(): { Model }
 		table.insert(units, buildUnit(floor, index, origin))
 	end
 
+	buildLamps(floor, rowWidth)
 	applyLighting()
 	return units
 end
