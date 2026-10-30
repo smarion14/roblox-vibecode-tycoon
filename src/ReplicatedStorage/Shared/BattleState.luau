@@ -69,7 +69,8 @@ export type SquadOptions = {
 }
 
 export type Weapon = "Ship" | "Spread" | "Beam" | "Missile"
-export type ShipSample = { T: number, X: number }
+-- D: total distance the ship was allowed to fly from battle start to T (slack not included).
+export type ShipSample = { T: number, X: number, D: number }
 
 export type BugState = "Pending" | "Squashed" | "Hit"
 export type BugKind = "Minion" | "Boss"
@@ -146,6 +147,7 @@ local FORMATION_ROWS = 3
 local SHIP_MIN_X = 0.04
 local SHIP_MAX_X = 0.96
 local SHIP_HISTORY = 2
+local SHIP_MIN_GAP = 0.05 -- samples closer than this overwrite each other, so bursts can't grow the list
 local SLOW_SPEED_SCALE = 0.5
 
 local BattleState = {}
@@ -391,23 +393,34 @@ function BattleState.Tick(b: Battle, now: number)
 	settle(b)
 end
 
--- The client streams its ship x. Clamped to the field and to how far the ship could have flown since the last
--- sample (half speed while slowed), so a teleporting client gets nowhere. Act 1 has no ship hitbox.
+-- The client streams its ship x. Clamped to the field and to how far the ship could have flown since EVERY kept
+-- sample (half speed while slowed), so slack is granted once per window, not once per message.
+-- Act 1 has no ship hitbox; NaN and out-of-order times are dropped.
 function BattleState.MoveShip(b: Battle, x: number, now: number)
 	local options = b.Options
-	if not options or x ~= x then
+	local samples = b.ShipSamples
+	local last = samples[#samples]
+	if not options or x ~= x or now ~= now or (last and now < last.T) then
 		return
 	end
 	local squad = options.Squad
-	local samples = b.ShipSamples
-	x = math.clamp(x, SHIP_MIN_X, SHIP_MAX_X)
-	local last = samples[#samples]
-	if last then
-		local speed = squad.ShipMaxSpeed * (if now < b.SlowUntil then SLOW_SPEED_SCALE else 1)
-		local reach = speed * math.max(now - last.T, 0) + squad.ShipSlack
-		x = math.clamp(x, last.X - reach, last.X + reach)
+	local speed = squad.ShipMaxSpeed * (if now < b.SlowUntil then SLOW_SPEED_SCALE else 1)
+	local travel = if last then last.D + speed * (now - last.T) else 0
+	local lo, hi = SHIP_MIN_X, SHIP_MAX_X
+	for _, sample in samples do
+		local reach = travel - sample.D + squad.ShipSlack
+		lo = math.max(lo, sample.X - reach)
+		hi = math.min(hi, sample.X + reach)
 	end
-	table.insert(samples, { T = now, X = x })
+	-- the last sample always lies inside every window; fall back to it if float error empties the range
+	x = if lo <= hi then math.clamp(x, lo, hi) elseif last then last.X else x
+	local sample = { T = now, X = x, D = travel }
+	local previous = samples[#samples - 1]
+	if previous and now - previous.T < SHIP_MIN_GAP then
+		samples[#samples] = sample -- keep the older anchor, replace the in-between one
+	else
+		table.insert(samples, sample)
+	end
 	while samples[1].T < now - SHIP_HISTORY do
 		table.remove(samples, 1)
 	end

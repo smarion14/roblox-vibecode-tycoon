@@ -287,19 +287,40 @@ end
 tests["wingman weapons have their own budget"] = function()
 	local b = squadBattle({ "PromptTokens" })
 	local list = minions(b)
-	local t = 0
-	for _, bug in list do
-		t = math.max(t, bug.SpawnAt + RULES.VisibleDelay + 0.01)
-	end
+	table.sort(list, function(x: BattleState.Bug, y: BattleState.Bug): boolean
+		return x.SpawnAt < y.SpawnAt
+	end)
+	local missile = GameConfig.SQUAD.Weapons.Missile
 	local accepted = 0
-	for _, bug in list do
-		if BattleState.Kill(b, bug.Id, math.min(t, bug.ReachAt), "Missile") then
+	-- claim every bug as it appears, then keep hitting the boss until the missile budget runs dry
+	local function claim(bug: BattleState.Bug, at: number): boolean
+		if BattleState.Kill(b, bug.Id, at, "Missile") then
 			accepted += 1
+			return true
+		end
+		local budget = math.floor(at / missile.Interval) * missile.PerShot + RULES.ShotBudgetSlack
+		assert(accepted == budget, `rejected after {accepted} with budget {budget}`)
+		assert(BattleState.Kill(b, bug.Id, at), "the ship's own budget is separate")
+		return false
+	end
+	local theBoss = boss(b)
+	local bossAt = theBoss.SpawnAt + RULES.VisibleDelay + 0.1
+	for _, bug in list do
+		local at = bug.SpawnAt + RULES.VisibleDelay + 0.01
+		if at < bossAt and not claim(bug, at) then
+			return
 		end
 	end
-	local missile = GameConfig.SQUAD.Weapons.Missile
-	local budget = math.floor(t / missile.Interval) * missile.PerShot + RULES.ShotBudgetSlack
-	assert(accepted > 0 and accepted <= budget, `accepted {accepted} with budget {budget}`)
+	for _ = 1, theBoss.Hp - 1 do
+		if not claim(theBoss, bossAt) then
+			return
+		end
+	end
+	error("the missile budget never ran out")
+end
+
+local function landsAt(bug: BattleState.Bug): number
+	return bug.ReachAt + RULES.LatencyGrace + 0.01
 end
 
 tests["wing shield absorbs a hit then recharges"] = function()
@@ -308,13 +329,53 @@ tests["wing shield absorbs a hit then recharges"] = function()
 	table.sort(list, function(x: BattleState.Bug, y: BattleState.Bug): boolean
 		return x.ReachAt < y.ReachAt
 	end)
-	local first = list[1].ReachAt + RULES.LatencyGrace + 0.01
-	local second = list[2].ReachAt + RULES.LatencyGrace + 0.01
-	assert(second - first < GameConfig.SQUAD.WingShieldRecharge, "fixture: landings 8 s apart")
+	local recharge = GameConfig.SQUAD.WingShieldRecharge
+	local first, second = landsAt(list[1]), landsAt(list[2])
+	assert(second - first < recharge, "fixture: second landing must come before the shield recharges")
 	BattleState.Tick(b, first)
 	assert(b.Mood == 70 and b.Mistakes == 1, `mood {b.Mood}`)
 	BattleState.Tick(b, second)
 	assert(b.Mood == 70 - RULES.MoodHitPenalty, `mood {b.Mood}`)
+
+	-- the first landing after the recharge is absorbed again; everything in between counts as shot down
+	local k = 3
+	while landsAt(list[k]) < first + recharge do
+		list[k].State = "Squashed"
+		k += 1
+	end
+	assert(list[k + 1].ReachAt > list[k].ReachAt + 0.01, "fixture: one landing at a time")
+	BattleState.Tick(b, landsAt(list[k]))
+	assert(list[k].State == "Hit" and b.Mood == 70 - RULES.MoodHitPenalty, `mood {b.Mood}`)
+end
+
+tests["ship bursts can't stack slack"] = function()
+	local b = squadBattle({})
+	BattleState.MoveShip(b, 0.5, 10)
+	for i = 0, 9 do
+		BattleState.MoveShip(b, 0.96, 10 + i * 1e-6)
+	end
+	assert(BattleState.ShipXAt(b, 10.00001) <= 0.5 + 2.6 * 0.00001 + 0.15 + 1e-9, `x {BattleState.ShipXAt(b, 10.00001)}`)
+	for _ = 1, 1000 do
+		BattleState.MoveShip(b, 0.04, 10.00001)
+	end
+	assert(#b.ShipSamples <= 3, `{#b.ShipSamples} samples`)
+end
+
+tests["slowed ship moves at half speed"] = function()
+	local b = squadBattle({})
+	b.SlowUntil = 11
+	BattleState.MoveShip(b, 0.5, 10)
+	BattleState.MoveShip(b, 0.96, 10.1)
+	assert(BattleState.ShipXAt(b, 10.1) <= 0.5 + 1.3 * 0.1 + 0.15 + 1e-9)
+end
+
+tests["bad ship times are ignored"] = function()
+	local b = squadBattle({})
+	BattleState.MoveShip(b, 0.5, 10)
+	BattleState.MoveShip(b, 0.6, 0 / 0)
+	BattleState.MoveShip(b, 0.6, 9)
+	BattleState.MoveShip(b, 0 / 0, 10.5)
+	assert(#b.ShipSamples == 1 and BattleState.ShipXAt(b, 20) == 0.5)
 end
 
 return tests
