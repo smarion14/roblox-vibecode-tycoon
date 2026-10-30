@@ -25,6 +25,7 @@ type ActiveBurst = {
 	Rules: TypingJudge.BurstRules,
 	Preview: boolean,
 	Finished: boolean,
+	Release: (() -> ())?,
 }
 
 local WATCH_SECONDS = 0.1
@@ -57,12 +58,57 @@ local function issue(player: Player, burst: ActiveBurst, index: number, timeDelt
 	RemoteManager.FireClient(RemoteNames.BurstPrompt, player, index, burst.Texts[index], nextText, timeLeft, timeDelta)
 end
 
+-- Sits the player in the station's chair and keeps them there: no jumping, and standing up re-seats them.
+-- Returns the function that lets them go again.
+local function lockToSeat(player: Player, seat: Seat): (() -> ())?
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return nil
+	end
+	local jumpPower, jumpHeight = humanoid.JumpPower, humanoid.JumpHeight
+	humanoid.JumpPower = 0
+	humanoid.JumpHeight = 0
+	seat.Disabled = false
+	seat:Sit(humanoid)
+
+	local locked = true
+	local seatedConnection = humanoid.Seated:Connect(function(isSeated: boolean)
+		if locked and not isSeated and humanoid.Health > 0 then
+			task.defer(function()
+				if locked then
+					seat:Sit(humanoid)
+				end
+			end)
+		end
+	end)
+
+	return function()
+		locked = false
+		seatedConnection:Disconnect()
+		if humanoid.Parent then
+			humanoid.JumpPower = jumpPower
+			humanoid.JumpHeight = jumpHeight
+			humanoid.Sit = false
+		end
+		local weld = seat:FindFirstChild("SeatWeld")
+		if weld then
+			weld:Destroy()
+		end
+		seat.Disabled = true
+	end
+end
+
 local function finish(player: Player, burst: ActiveBurst)
 	if burst.Finished or bursts[player] ~= burst then
 		return
 	end
 	burst.Finished = true
 	bursts[player] = nil
+	local release = burst.Release
+	if release then
+		release()
+	end
 
 	-- Prompts never reached still count against the burst.
 	for index = 1, #burst.Texts do
@@ -105,9 +151,14 @@ local function onStation(player: Player, part: BasePart)
 		Rules = rules,
 		Preview = preview,
 		Finished = false,
+		Release = nil,
 	}
 	bursts[player] = burst
 	StartupDataModule.SetActivity(player, "Burst")
+	local seatLink = part:FindFirstChild("StationSeat")
+	if seatLink and seatLink:IsA("ObjectValue") and seatLink.Value and seatLink.Value:IsA("Seat") then
+		burst.Release = lockToSeat(player, seatLink.Value)
+	end
 	issue(player, burst, 1, 0)
 
 	-- The deadline moves as prompts are judged, so watch it instead of a fixed delay.
@@ -149,6 +200,11 @@ function BurstService.Start()
 	RemoteManager.Listen(RemoteNames.SubmitBurstPrompt, onSubmit)
 	-- Leaving mid-burst discards it: nothing is added and the activity lock dies with the session.
 	Players.PlayerRemoving:Connect(function(player: Player)
+		local burst = bursts[player]
+		local release = burst and burst.Release
+		if release then
+			release() -- free the chair so it doesn't stay enabled for anyone who walks into it
+		end
 		bursts[player] = nil
 	end)
 end

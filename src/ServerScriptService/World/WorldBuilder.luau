@@ -156,11 +156,24 @@ local function desk(parent: Instance, name: string, width: number, depth: number
 	return cframe * CFrame.new(0, topHeight + 0.125, 0) -- desk surface
 end
 
-local function chair(parent: Instance, cframe: CFrame)
-	part(parent, "ChairSeat", Vector3.new(2, 0.4, 2), cframe * CFrame.new(0, 1.8, 0), COLOR_ACCENT_DARK, Enum.Material.Fabric)
+-- The seat is a real Seat, disabled by default so walking into it doesn't sit you down.
+-- BurstService enables it and seats the player for the length of a burst. It faces local -Z (the desk).
+local function chair(parent: Instance, cframe: CFrame): Seat
+	local seat = Instance.new("Seat")
+	seat.Name = "ChairSeat"
+	seat.Size = Vector3.new(2, 0.4, 2)
+	seat.CFrame = cframe * CFrame.new(0, 1.8, 0)
+	seat.Color = COLOR_ACCENT_DARK
+	seat.Material = Enum.Material.Fabric
+	seat.Anchored = true
+	seat.Disabled = true
+	seat.TopSurface = Enum.SurfaceType.Smooth
+	seat.BottomSurface = Enum.SurfaceType.Smooth
+	seat.Parent = parent
 	part(parent, "ChairBack", Vector3.new(2, 2.6, 0.4), cframe * CFrame.new(0, 3.3, 0.9), COLOR_ACCENT_DARK, Enum.Material.Fabric)
 	part(parent, "ChairStem", Vector3.new(0.3, 1.6, 0.3), cframe * CFrame.new(0, 0.8, 0), COLOR_BEZEL, Enum.Material.Metal)
 	part(parent, "ChairBase", Vector3.new(1.8, 0.2, 1.8), cframe * CFrame.new(0, 0.1, 0), COLOR_BEZEL, Enum.Material.Metal)
+	return seat
 end
 
 local function plant(parent: Instance, cframe: CFrame)
@@ -182,7 +195,11 @@ local function buildFrontendStation(unit: Model, base: CFrame): Part
 	for index = 1, 3 do
 		cylinder(unit, "EnergyCan", 0.7, 0.4, surface * CFrame.new(-3 + index * 0.45, 0.35, 0.9) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(80, 230, 120), Enum.Material.Metal)
 	end
-	chair(unit, base * CFrame.new(0, 0, 3))
+	-- Link the station screen to its chair; BurstService seats the player here during the burst.
+	local seatLink = Instance.new("ObjectValue")
+	seatLink.Name = "StationSeat"
+	seatLink.Value = chair(unit, base * CFrame.new(0, 0, 3))
+	seatLink.Parent = screen
 	return screen
 end
 
