@@ -92,6 +92,86 @@ function Juice.Pop(target: GuiObject, amount: number)
 	TweenService:Create(scale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 end
 
+-- Opens a window: it springs up from slightly below while scaling in, and its rows cascade in one after another.
+-- Calling it on a window that is already showing just refreshes the cascade without replaying the entrance.
+function Juice.OpenWindow(gui: ScreenGui, window: GuiObject)
+	local home = homeOf(window)
+	local scale = scaleOf(window)
+	local wasOpen = gui.Enabled and window:GetAttribute("JuiceOpen") == true
+	window:SetAttribute("JuiceOpen", true)
+	gui.Enabled = true
+
+	if not wasOpen then
+		window.Position = home + UDim2.fromOffset(0, 40)
+		scale.Scale = 0.7
+		TweenService:Create(window, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = home }):Play()
+		TweenService:Create(scale, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+
+	local rows: { GuiObject } = {}
+	for _, child in window:GetChildren() do
+		if child:IsA("GuiObject") then
+			table.insert(rows, child)
+		end
+	end
+	table.sort(rows, function(a: GuiObject, b: GuiObject): boolean
+		return a.LayoutOrder < b.LayoutOrder
+	end)
+	for index, child in rows do
+		local rowScale = scaleOf(child)
+		rowScale.Scale = 0
+		task.delay((if wasOpen then 0 else 0.08) + index * 0.035, function()
+			TweenService:Create(rowScale, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+		end)
+	end
+end
+
+-- Closes a window: a quick shrink-and-drop, then the ScreenGui is disabled and the window reset.
+function Juice.CloseWindow(gui: ScreenGui, window: GuiObject)
+	if window:GetAttribute("JuiceOpen") ~= true then
+		gui.Enabled = false
+		return
+	end
+	window:SetAttribute("JuiceOpen", false)
+	local home = homeOf(window)
+	local scale = scaleOf(window)
+	TweenService:Create(window, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = home + UDim2.fromOffset(0, 30),
+	}):Play()
+	local shrink = TweenService:Create(scale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.In), { Scale = 0.6 })
+	shrink.Completed:Once(function()
+		if window:GetAttribute("JuiceOpen") ~= true then
+			gui.Enabled = false
+			window.Position = home
+			scale.Scale = 1
+		end
+	end)
+	shrink:Play()
+end
+
+-- Toast-style panel: slides in from an offset and pops, e.g. notices and phone messages.
+function Juice.SlideIn(target: GuiObject, offset: UDim2)
+	local home = homeOf(target)
+	local scale = scaleOf(target)
+	target.Visible = true
+	target.Position = home + offset
+	scale.Scale = 0.85
+	TweenService:Create(target, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Position = home }):Play()
+	TweenService:Create(scale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+end
+
+function Juice.SlideOut(target: GuiObject, offset: UDim2)
+	local home = homeOf(target)
+	local slide = TweenService:Create(target, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = home + offset,
+	})
+	slide.Completed:Once(function()
+		target.Visible = false
+		target.Position = home
+	end)
+	slide:Play()
+end
+
 -- Counts a label from 0 up to a target with an ease-out, calling onStep on each new whole number.
 -- Yields until done; shouldSkip lets the caller jump straight to the end.
 function Juice.CountUp(

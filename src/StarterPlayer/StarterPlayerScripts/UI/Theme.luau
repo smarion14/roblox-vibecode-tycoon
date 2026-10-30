@@ -1,5 +1,9 @@
 --!strict
 -- Shared UI palette (from the approved deploy-battle mockup) and two small builders every screen uses.
+local TweenService = game:GetService("TweenService")
+
+local Sfx = require(script.Parent:WaitForChild("Sfx"))
+
 local Theme = {}
 
 Theme.BACKGROUND = Color3.fromHex("0b0716")
@@ -75,6 +79,32 @@ function Theme.Button(parent: Instance, text: string, textSize: number): TextBut
 	stroke.Color = Theme.ACCENT
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.Parent = button
+
+	-- Every button feels physical: grows and glows on hover, squishes on press, springs back on release.
+	local scale = Instance.new("UIScale")
+	scale.Parent = button
+	local function scaleTo(value: number, seconds: number, style: Enum.EasingStyle)
+		TweenService:Create(scale, TweenInfo.new(seconds, style, Enum.EasingDirection.Out), { Scale = value }):Play()
+	end
+	button.MouseEnter:Connect(function()
+		scaleTo(1.04, 0.12, Enum.EasingStyle.Quad)
+		stroke.Thickness = 2
+		stroke.Color = Theme.TYPED
+	end)
+	button.MouseLeave:Connect(function()
+		scaleTo(1, 0.12, Enum.EasingStyle.Quad)
+		stroke.Thickness = 1
+		stroke.Color = Theme.ACCENT
+	end)
+	button.MouseButton1Down:Connect(function()
+		scaleTo(0.94, 0.06, Enum.EasingStyle.Quad)
+	end)
+	button.MouseButton1Up:Connect(function()
+		scaleTo(1.04, 0.25, Enum.EasingStyle.Back)
+	end)
+	button.Activated:Connect(function()
+		Sfx.Play("ChipTap")
+	end)
 	return button
 end
 

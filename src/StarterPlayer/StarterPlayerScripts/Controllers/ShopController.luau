@@ -6,7 +6,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
-local Theme = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Theme"))
+local UI = script.Parent.Parent:WaitForChild("UI")
+local Juice = require(UI:WaitForChild("Juice"))
+local Theme = require(UI:WaitForChild("Theme"))
 
 local ShopController = {}
 
@@ -14,7 +16,7 @@ local gui: ScreenGui
 local list: Frame
 
 local function close()
-	gui.Enabled = false
+	Juice.CloseWindow(gui, list)
 end
 
 local function open(items: any)
@@ -49,7 +51,7 @@ local function open(items: any)
 	cancel.LayoutOrder = 1000
 	cancel.Activated:Connect(close)
 
-	gui.Enabled = true
+	Juice.OpenWindow(gui, list)
 end
 
 function ShopController.Init()

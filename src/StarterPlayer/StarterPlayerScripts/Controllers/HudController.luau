@@ -2,12 +2,15 @@
 -- Always-on HUD: cash, valuation, rent goal, the active job's recipe progress, and notice toasts.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
-local Theme = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Theme"))
+local UI = script.Parent.Parent:WaitForChild("UI")
+local Juice = require(UI:WaitForChild("Juice"))
+local Theme = require(UI:WaitForChild("Theme"))
 
 local NOTICE_SECONDS = 3
 
@@ -21,6 +24,10 @@ local jobLabel: TextLabel
 local recipeLabel: TextLabel
 local noticeLabel: TextLabel
 local noticeToken = 0
+local shownCash: number? = nil
+local shownJob: string? = nil
+local shownUnits: { [string]: number } = {}
+local cashToken = 0
 
 local function countUnits(grades: any): number
 	if type(grades) ~= "table" then
@@ -34,8 +41,43 @@ local function onStateSync(view: any)
 		return
 	end
 	local cash = tonumber(view.Cash) or 0
-	cashLabel.Text = `CASH  ${cash}`
-	valuationLabel.Text = string.format("VALUATION  x%.2f", tonumber(view.Valuation) or 1)
+	local valuationText = string.format("VALUATION  x%.2f", tonumber(view.Valuation) or 1)
+
+	-- Cash rolls to the new value and flashes amber for income, red for spending.
+	local previous = shownCash
+	shownCash = cash
+	if previous == nil or previous == cash then
+		cashLabel.Text = `CASH  ${cash}`
+	else
+		cashToken += 1
+		local token = cashToken
+		local from = previous
+		local gained = cash > from
+		cashLabel.TextColor3 = if gained then Theme.MOOD else Theme.BUG
+		Juice.Pop(cashLabel, if gained then 0.35 else 0.2)
+		local started = os.clock()
+		task.spawn(function()
+			while cashToken == token do
+				local t = math.clamp((os.clock() - started) / 0.8, 0, 1)
+				local eased = 1 - (1 - t) ^ 3
+				cashLabel.Text = `CASH  ${math.floor(from + (cash - from) * eased + 0.5)}`
+				if t >= 1 then
+					break
+				end
+				task.wait()
+			end
+			if cashToken == token then
+				TweenService:Create(cashLabel, TweenInfo.new(0.4), { TextColor3 = Theme.TYPED }):Play()
+			end
+		end)
+	end
+	if valuationLabel.Text ~= valuationText then
+		local first = previous == nil
+		valuationLabel.Text = valuationText
+		if not first then
+			Juice.Pop(valuationLabel, 0.3)
+		end
+	end
 
 	if view.RentPaid then
 		rentLabel.Text = "RENT  PAID"
@@ -51,6 +93,12 @@ local function onStateSync(view: any)
 			job = client
 		end
 	end
+	local jobId = if job then job.Id else nil
+	if jobId ~= shownJob then
+		shownJob = jobId
+		Juice.Pop(jobLabel, 0.35)
+		table.clear(shownUnits)
+	end
 	if not job then
 		jobLabel.Text = "NO JOB  check your phone"
 		recipeLabel.Text = ""
@@ -60,13 +108,22 @@ local function onStateSync(view: any)
 	jobLabel.Text = `JOB  {job.Name}`
 	local recipe = GameConfig.RECIPES[job.Project]
 	local lines: { string } = {}
+	local grew = false
 	for _, component in GameConfig.COMPONENTS do
 		local have = countUnits(view.Inventory and view.Inventory[component])
+		local before = shownUnits[component]
+		if before ~= nil and have > before then
+			grew = true
+		end
+		shownUnits[component] = have
 		local need = recipe[component] or 0
 		local mark = if have >= need then "+" else "-"
 		table.insert(lines, `{mark} {GameConfig.STATION_NAMES[component]}  {have}/{need}`)
 	end
 	recipeLabel.Text = table.concat(lines, "\n")
+	if grew then
+		Juice.Pop(recipeLabel, 0.12)
+	end
 end
 
 local function showNotice(text: any)
@@ -76,10 +133,10 @@ local function showNotice(text: any)
 	noticeToken += 1
 	local token = noticeToken
 	noticeLabel.Text = text
-	noticeLabel.Visible = true
+	Juice.SlideIn(noticeLabel, UDim2.fromOffset(0, 40))
 	task.delay(NOTICE_SECONDS, function()
 		if noticeToken == token then
-			noticeLabel.Visible = false
+			Juice.SlideOut(noticeLabel, UDim2.fromOffset(0, 40))
 		end
 	end)
 end

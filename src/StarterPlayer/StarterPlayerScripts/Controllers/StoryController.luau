@@ -6,7 +6,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
-local Theme = require(script.Parent.Parent:WaitForChild("UI"):WaitForChild("Theme"))
+local UI = script.Parent.Parent:WaitForChild("UI")
+local Juice = require(UI:WaitForChild("Juice"))
+local Sfx = require(UI:WaitForChild("Sfx"))
+local Theme = require(UI:WaitForChild("Theme"))
 local IntroController = require(script.Parent:WaitForChild("IntroController"))
 
 local TEXT_SECONDS = 5
@@ -27,10 +30,12 @@ local function showText(message: any)
 	toastToken += 1
 	local token = toastToken
 	toastText.Text = message
-	toast.Visible = true
+	-- Phone buzz: slides in from the right edge with a tap.
+	Sfx.Play("ChipTap")
+	Juice.SlideIn(toast, UDim2.fromOffset(340, 0))
 	task.delay(TEXT_SECONDS, function()
 		if toastToken == token then
-			toast.Visible = false
+			Juice.SlideOut(toast, UDim2.fromOffset(340, 0))
 		end
 	end)
 end
@@ -52,6 +57,18 @@ local function showCard(lines: { string }, ending: string)
 		card.Visible = false
 	end)
 	card.Visible = true
+	Sfx.Play("Banner")
+	-- Lines rise into place one after another.
+	local delayIndex = 0
+	for _, child in cardBody:GetChildren() do
+		if child:IsA("GuiObject") then
+			delayIndex += 1
+			child.Visible = false
+			task.delay(0.15 + delayIndex * 0.25, function()
+				Juice.SlideIn(child, UDim2.fromOffset(0, 24))
+			end)
+		end
+	end
 end
 
 local function onBeat(kind: any, payload: any)
