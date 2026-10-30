@@ -2,6 +2,9 @@
 -- Client bootstrap: Init and Start on each controller.
 type Controller = { Init: () -> (), Start: () -> () }
 
+-- First, so its StateSync connection catches the sync the server sends right after loading the save.
+require(script.Parent:WaitForChild("UI"):WaitForChild("ClientState"))
+
 local controllersFolder = script.Parent:FindFirstChild("Controllers")
 local controllers: { Controller } = {}
 if controllersFolder then

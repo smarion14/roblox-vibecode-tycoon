@@ -2,6 +2,7 @@
 -- Decorate mode (Act 2+): a top-down camera over the office's decorate zone, a cell grid, a shop panel and a ghost
 -- preview that snaps to the grid. The client only previews with Decor.CanPlace; every buy, move and sell is a
 -- request that DecorService checks again and answers with DecorResult.
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
@@ -17,6 +18,7 @@ local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForC
 local DecorModels = require(ReplicatedStorage:WaitForChild("World"):WaitForChild("DecorModels"))
 local CutsceneController = require(script.Parent:WaitForChild("CutsceneController"))
 local UI = script.Parent.Parent:WaitForChild("UI")
+local ClientState = require(UI:WaitForChild("ClientState"))
 local Juice = require(UI:WaitForChild("Juice"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
@@ -34,6 +36,9 @@ local STICK_RELEASE = 0.3
 -- While one of these is open the player is in a battle, minigame or burst, and can't decorate.
 local BUSY_GUIS = { "Battle", "Minigame", "Burst" }
 local COLOR_OK = Color3.fromRGB(90, 255, 140)
+-- Gamepad shortcut into decorate mode while the button shows; no other controller binds ButtonY.
+local ENTER_ACTION = "DecorateEnter"
+local ENTER_KEY = Enum.KeyCode.ButtonY
 local DPAD_STEPS: { [Enum.KeyCode]: Vector2 } = {
 	[Enum.KeyCode.DPadLeft] = Vector2.new(-1, 0),
 	[Enum.KeyCode.DPadRight] = Vector2.new(1, 0),
@@ -663,6 +668,7 @@ local function enter()
 	end
 
 	decorateButton.Visible = false
+	ContextActionService:UnbindAction(ENTER_ACTION) -- inside the mode, Y focuses the menu instead
 	root.Visible = true
 	Juice.PopIn(panel)
 	Juice.PopIn(bar)
@@ -842,8 +848,30 @@ function DecorateController.Init()
 	gui.Parent = player:WaitForChild("PlayerGui")
 end
 
+local function onEnterAction(_: string, state: Enum.UserInputState, _: InputObject): Enum.ContextActionResult
+	if state == Enum.UserInputState.Begin then
+		enter()
+	end
+	return Enum.ContextActionResult.Sink
+end
+
+-- Shows or hides the DECORATE button, with its gamepad shortcut bound only while it shows.
+local function showButton(shown: boolean)
+	decorateButton.Visible = shown
+	if not shown then
+		ContextActionService:UnbindAction(ENTER_ACTION)
+		return
+	end
+	ContextActionService:BindAction(ENTER_ACTION, onEnterAction, false, ENTER_KEY)
+	local glyph = UserInputService:GetStringForKeyCode(ENTER_KEY, Enum.KeyCodeStringFormat.Abbreviated)
+	decorateButton.Text = if usingGamepad() then `DECORATE ({if glyph ~= "" then glyph else "Y"})` else "DECORATE"
+	-- On touch, sit above the thumbstick zone.
+	local touch = UserInputService.PreferredInput == Enum.PreferredInput.Touch
+	decorateButton.Position = UDim2.new(0, 16, 1, if touch then -150 else -16)
+end
+
 function DecorateController.Start()
-	RemoteManager.GetRemote(RemoteNames.StateSync).OnClientEvent:Connect(onStateSync)
+	ClientState.OnChanged(onStateSync)
 	RemoteManager.GetRemote(RemoteNames.DecorResult).OnClientEvent:Connect(onResult)
 
 	-- The button follows state the server doesn't push (where the character stands, which UI is open), so poll it.
@@ -854,10 +882,7 @@ function DecorateController.Start()
 			if active and not allowed then
 				exit()
 			end
-			decorateButton.Visible = allowed and not active
-			-- On touch, sit above the thumbstick zone.
-			local touch = UserInputService.PreferredInput == Enum.PreferredInput.Touch
-			decorateButton.Position = UDim2.new(0, 16, 1, if touch then -150 else -16)
+			showButton(allowed and not active)
 		end
 	end)
 end

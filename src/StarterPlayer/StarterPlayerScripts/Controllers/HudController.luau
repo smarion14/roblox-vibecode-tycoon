@@ -9,6 +9,7 @@ local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
+local ClientState = require(UI:WaitForChild("ClientState"))
 local Juice = require(UI:WaitForChild("Juice"))
 local Theme = require(UI:WaitForChild("Theme"))
 
@@ -187,7 +188,7 @@ function HudController.Init()
 end
 
 function HudController.Start()
-	RemoteManager.GetRemote(RemoteNames.StateSync).OnClientEvent:Connect(onStateSync)
+	ClientState.OnChanged(onStateSync)
 	RemoteManager.GetRemote(RemoteNames.Notice).OnClientEvent:Connect(showNotice)
 end
 
