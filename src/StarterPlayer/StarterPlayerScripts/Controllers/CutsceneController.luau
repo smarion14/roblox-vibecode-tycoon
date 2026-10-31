@@ -33,6 +33,15 @@ local FOCUS_DISTANCE = 2.6
 local FOCUS_SIDE = 0.9
 local FOCUS_DROP = 0.5
 local STRESS_CHAR_DELAY = 0.05
+-- News ticker on the deploy screen: headline text size on the SurfaceGui, scroll speed in its pixels per second.
+local TICKER_TEXT_SIZE = 64
+local TICKER_SPEED = 260
+-- Alarm: the same red, beacon spin and low two-tone siren (BugGotThrough) as a live incident in IncidentController.
+local ALARM_RED = Color3.fromRGB(255, 40, 50)
+local ALARM_SPIN = math.pi * 2
+local ALARM_PITCHES = { 0.45, 0.6, 0.45, 0.6, 0.45, 0.6, 0.45, 0.6 }
+local ALARM_STEP_SECONDS = 0.45
+local CREDITS_SECONDS = 10
 
 local CutsceneController = {}
 
@@ -68,6 +77,8 @@ type Scene = {
 	Actors: { [string]: Model },
 	Restores: { () -> () },
 }
+
+type Spin = { Part: BasePart, Base: CFrame, Color: Color3, Material: Enum.Material, Beam: SpotLight, Glow: PointLight?, GlowWasOn: boolean }
 
 -- Waits, but returns early when the player skips.
 local function hold(seconds: number)
@@ -409,7 +420,147 @@ local function prop(scene: Scene, step: Cutscenes.Step)
 			phone.CFrame = original
 		end
 		hold(0.4)
+	elseif step.Prop == "NewsTicker" then
+		-- The headline loops across the deploy screen on a strip laid over its label until the scene ends.
+		local screen = contents and contents:FindFirstChild("DeployTerminal")
+		local surface = screen and screen:FindFirstChildOfClass("SurfaceGui")
+		local label = surface and surface:FindFirstChildOfClass("TextLabel")
+		if surface and label then
+			local strip = Instance.new("Frame")
+			strip.Name = "CutsceneTicker"
+			strip.Size = UDim2.fromScale(1, 1)
+			strip.BackgroundColor3 = label.BackgroundColor3
+			strip.BorderSizePixel = 0
+			strip.ClipsDescendants = true
+			strip.ZIndex = label.ZIndex + 1
+			local headline = Instance.new("TextLabel")
+			headline.BackgroundTransparency = 1
+			headline.AnchorPoint = Vector2.new(0, 0.5)
+			headline.Position = UDim2.fromScale(1, 0.5)
+			headline.Size = UDim2.fromScale(0, 1)
+			headline.AutomaticSize = Enum.AutomaticSize.X
+			headline.Font = label.Font
+			headline.TextSize = TICKER_TEXT_SIZE
+			headline.TextColor3 = Theme.MOOD
+			headline.Text = step.Text or ""
+			headline.Parent = strip
+			strip.Parent = surface
+			table.insert(scene.Restores, function()
+				strip:Destroy()
+			end)
+			task.wait() -- let AutomaticSize measure the headline
+			local width = math.max(headline.AbsoluteSize.X, headline.TextBounds.X, 1)
+			local distance = surface.AbsoluteSize.X + width
+			TweenService:Create(headline, TweenInfo.new(distance / TICKER_SPEED, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1), {
+				Position = UDim2.new(0, -width, 0.5, 0),
+			}):Play()
+			Sfx.Play("Banner", 1.2)
+		end
+		hold(0.3)
+	elseif step.Prop == "Alarm" then
+		-- Every incident light in the unit spins a red beam like a live incident, the screen washes red, the camera
+		-- jolts and the siren wails. The lights sit upstairs, so the wash is what sells it from the lobby.
+		local spins: { Spin } = {}
+		for _, light in CollectionService:GetTagged("IncidentLight") do
+			if light:IsA("BasePart") and light:IsDescendantOf(scene.Unit) then
+				local beam = Instance.new("SpotLight")
+				beam.Color = ALARM_RED
+				beam.Brightness = 5
+				beam.Range = 26
+				beam.Angle = 50
+				beam.Face = Enum.NormalId.Front
+				beam.Parent = light
+				local glow = light:FindFirstChildOfClass("PointLight")
+				table.insert(spins, { Part = light, Base = light.CFrame, Color = light.Color, Material = light.Material, Beam = beam, Glow = glow, GlowWasOn = glow ~= nil and glow.Enabled })
+				light.Color = ALARM_RED
+				light.Material = Enum.Material.Neon
+				if glow then
+					glow.Enabled = true
+				end
+			end
+		end
+		local spinner = RunService.Heartbeat:Connect(function()
+			local angle = (os.clock() * ALARM_SPIN) % (math.pi * 2)
+			for _, spin in spins do
+				spin.Part.CFrame = spin.Base * CFrame.Angles(0, angle, 0)
+			end
+		end)
+		local wash = Instance.new("Frame")
+		wash.Name = "AlarmWash"
+		wash.Size = UDim2.fromScale(1, 1)
+		wash.BackgroundColor3 = ALARM_RED
+		wash.BackgroundTransparency = 1
+		wash.BorderSizePixel = 0
+		wash.ZIndex = 1 -- under the letterbox bars and the dialogue
+		wash.Parent = gui
+		TweenService:Create(wash, TweenInfo.new(ALARM_STEP_SECONDS, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, #ALARM_PITCHES // 2 - 1, true), {
+			BackgroundTransparency = 0.6,
+		}):Play()
+		table.insert(scene.Restores, function()
+			spinner:Disconnect()
+			wash:Destroy()
+			for _, spin in spins do
+				spin.Beam:Destroy()
+				spin.Part.CFrame = spin.Base
+				spin.Part.Color = spin.Color
+				spin.Part.Material = spin.Material
+				if spin.Glow then
+					spin.Glow.Enabled = spin.GlowWasOn
+				end
+			end
+		end)
+		local token = sceneToken
+		task.spawn(function()
+			for _, pitch in ALARM_PITCHES do
+				if sceneToken ~= token or skipping or not playing then
+					return
+				end
+				Sfx.Play("BugGotThrough", pitch)
+				task.wait(ALARM_STEP_SECONDS)
+			end
+		end)
+		shake(2.4, 1.6)
+		zoomPunch(10, 0.6)
+		hold(0.3)
 	end
+end
+
+-- Rolls the lines up over black between the letterbox bars; Skip ends it like any other step.
+local function rollCredits(scene: Scene, step: Cutscenes.Step)
+	if skipping then
+		return
+	end
+	fadeTo("Black", 0.8)
+	local window = Instance.new("Frame")
+	window.Name = "Credits"
+	window.BackgroundTransparency = 1
+	window.Position = UDim2.fromScale(0, BAR_HEIGHT)
+	window.Size = UDim2.fromScale(1, 1 - BAR_HEIGHT * 2)
+	window.ClipsDescendants = true
+	window.ZIndex = 6 -- over the fade
+	window.Parent = gui
+	table.insert(scene.Restores, function()
+		window:Destroy()
+	end)
+	local roll = Instance.new("Frame")
+	roll.BackgroundTransparency = 1
+	roll.AnchorPoint = Vector2.new(0.5, 0)
+	roll.Position = UDim2.fromScale(0.5, 1)
+	roll.Size = UDim2.fromScale(0.8, 0)
+	roll.AutomaticSize = Enum.AutomaticSize.Y
+	roll.Parent = window
+	Theme.List(roll, 22).HorizontalAlignment = Enum.HorizontalAlignment.Center
+	local lines: { string } = step.Lines or {}
+	for index, text in lines do
+		local label = Theme.Text(roll, text, if index == 1 then 40 else 26, if index == 1 then Theme.ACCENT else Theme.TEXT)
+		label.TextXAlignment = Enum.TextXAlignment.Center
+		label.LayoutOrder = index
+	end
+	task.wait() -- let AutomaticSize measure the roll
+	TweenService:Create(roll, TweenInfo.new(CREDITS_SECONDS, Enum.EasingStyle.Linear), {
+		Position = UDim2.new(0.5, 0, 0, -roll.AbsoluteSize.Y),
+	}):Play()
+	hold(CREDITS_SECONDS)
 end
 
 local function centerText(step: Cutscenes.Step)
@@ -460,6 +611,8 @@ local function runStep(scene: Scene, step: Cutscenes.Step)
 		NameDialog.Prompt("")
 	elseif kind == "Title" then
 		title(step)
+	elseif kind == "Credits" then
+		rollCredits(scene, step)
 	end
 end
 
@@ -553,6 +706,9 @@ end
 function CutsceneController.Play(payload: any)
 	if type(payload) ~= "table" or type(payload.Id) ~= "string" or type(payload.Copy) ~= "table" then
 		return
+	end
+	if payload.Replay == true and playing then
+		return -- a replay asked for while a scene runs (or a repeat press) is dropped, not queued
 	end
 	while playing do
 		task.wait(0.1)

@@ -12,6 +12,7 @@ local SERVER_FULL_MESSAGE = "Server is full."
 local UNTITLED_NAME = "UNTITLED STARTUP"
 
 local PlotService = {}
+PlotService.UNTITLED_NAME = UNTITLED_NAME
 
 local units: { Model }? = nil
 local ownerOf: { [number]: Player } = {}
@@ -54,7 +55,8 @@ local function onCharacterAdded(player: Player, character: Model)
 	end
 end
 
--- Act 1 shows no name; from Act 2 the office sign shows the startup's name (or a placeholder until it's named).
+-- Act 1 shows no name; from Act 2 the office sign (and in Act 3 the campus lobby panel) shows the startup's name, or
+-- a placeholder until it's named.
 local function signTextFor(act: number, startupName: string?): string
 	if act < 2 then
 		return ""

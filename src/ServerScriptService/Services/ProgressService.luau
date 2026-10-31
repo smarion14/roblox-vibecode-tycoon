@@ -1,7 +1,8 @@
 --!strict
--- Story flow: Story.NextBeat picks the cutscene a save still owes, the client plays it and reports CutsceneDone,
--- and finishing the Act 1 ending moves the player into Act 2 and their office. Sibling texts after deploys,
--- paying rent ends Act 1, reaching the valuation goal ends Act 2.
+-- Story flow: Story.NextBeat picks the cutscene a save still owes, the client plays it and reports CutsceneDone.
+-- Finishing the Act 1 ending moves the player into Act 2 and their office; finishing the Act 2 ending moves them into
+-- Act 3 and the campus. Sibling texts after deploys, paying rent ends Act 1, reaching the valuation goal ends Act 2,
+-- earning the Act 3 goal in deploy payouts sends the finale. The startup sign replays the finale after that.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -14,6 +15,7 @@ local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForC
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
+local StartupNameService = require(script.Parent:WaitForChild("StartupNameService"))
 
 local ProgressService = {}
 
@@ -25,18 +27,11 @@ local function storyState(save: StartupDataModule.PlayerSave): Story.StoryState
 	return { Act = save.Act, SeenIntro = save.SeenIntro, RentPaid = save.RentPaid, Flags = save.StoryFlags }
 end
 
--- Sends the cutscene this save still owes, if any, with the copy and numbers it needs.
-local function sendNextBeat(player: Player)
-	local save = StartupDataModule.GetSnapshot(player)
-	if not save then
-		return
-	end
-	local id = Story.NextBeat(storyState(save))
-	if not id then
-		return
-	end
+-- Sends a cutscene with the copy and numbers every script reads (Cutscenes.Copy).
+local function sendCutscene(player: Player, save: StartupDataModule.PlayerSave, id: string, replay: boolean)
 	beat(player, "Cutscene", {
 		Id = id,
+		Replay = replay,
 		Copy = {
 			RentGoal = GameConfig.RENT_GOAL,
 			ActGoal = save.ActGoal,
@@ -45,8 +40,39 @@ local function sendNextBeat(player: Player)
 			Act2Text = StoryText.ACT2_INTRO_TEXT,
 			BrotherText = StoryText.BROTHER_TEXT_ACT2,
 			Titles = StoryText.ACT_TITLES,
+			Act3Goal = GameConfig.ACT3.Goal,
+			StartupName = save.StartupName or PlotService.UNTITLED_NAME,
+			PlayerName = player.DisplayName,
+			Act2Ticker = StoryText.ACT2_END_TICKER,
+			Act3Text = StoryText.ACT3_INTRO_TEXT,
+			BrotherTextAct3 = StoryText.BROTHER_TEXT_ACT3,
+			Finale = StoryText.FINALE,
 		},
 	})
+end
+
+-- Sends the cutscene this save still owes, if any.
+local function sendNextBeat(player: Player)
+	local save = StartupDataModule.GetSnapshot(player)
+	if not save then
+		return
+	end
+	local id = Story.NextBeat(storyState(save))
+	if id then
+		sendCutscene(player, save, id, false)
+	end
+end
+
+-- The startup sign's "Replay ending": the finale again, flagged Replay. Its CutsceneDone changes nothing, because
+-- AcceptDone only takes the scene NextBeat owes, and nothing is owed once the finale has been seen.
+local function onReplayEnding(player: Player)
+	local save = StartupDataModule.GetSnapshot(player)
+	if not save or not save.StoryFlags.GameComplete or StartupDataModule.GetActivity(player) ~= "Idle" then
+		return
+	end
+	if Story.NextBeat(storyState(save)) == nil then
+		sendCutscene(player, save, "Finale", true)
+	end
 end
 
 local function onCutsceneDone(player: Player, id: any)
@@ -78,18 +104,45 @@ local function onCutsceneDone(player: Player, id: any)
 		if firstTime then
 			beat(player, "Act2Tutorial", nil)
 		end
+	elseif id == "Act2End" then
+		local start = Story.Act3Start(GameConfig.ACT3.StartReputation)
+		StartupDataModule.Update(player, function(current)
+			current.StoryFlags.Act2EndSeen = true
+			current.Act = start.Act
+			current.ActDeploys = start.ActDeploys
+			current.Reputation = start.Reputation
+			current.Act3Earned = start.Act3Earned
+		end)
+		-- Act2End ends on black, so the campus swap is never seen. No incident can be open: they only run in Act 3.
+		PlotService.RebuildUnit(player, 3)
+		sendNextBeat(player)
+	elseif id == "Act3Intro" then
+		-- IncidentService starts this player's schedule once nothing is owed, so the first incident lands MinGap..MaxGap later.
+		StartupDataModule.Update(player, function(current)
+			current.StoryFlags.Act3IntroSeen = true
+		end)
+	elseif id == "Finale" then
+		-- IncidentService restarts the schedule at the free-play rate once FinaleSeen is set.
+		StartupDataModule.Update(player, function(current)
+			current.StoryFlags.FinaleSeen = true
+		end)
 	end
 end
 
--- Celebrates each Act 2 milestone once: flags it in the save, then sends its card.
+-- Celebrates each milestone of the save's act once: flags it in the save, then sends its card.
 function ProgressService.CheckMilestones(player: Player)
 	local save = StartupDataModule.GetSnapshot(player)
 	if not save then
 		return
 	end
+	local act3 = save.Act == 3
+	local defs: { GameConfig.Milestone } = if act3 then GameConfig.ACT3.Milestones else GameConfig.ACT2.Milestones
+	-- Act 3's hire milestone counts key hires; Act 2's counts component hires.
 	local hires = 0
-	for _ in save.Hires do
-		hires += 1
+	for id in save.Hires do
+		if (GameConfig.KEY_HIRES[id] ~= nil) == act3 then
+			hires += 1
+		end
 	end
 	local state: Story.MilestoneState = {
 		Act = save.Act,
@@ -98,10 +151,10 @@ function ProgressService.CheckMilestones(player: Player)
 		ActGoal = save.ActGoal,
 		Hires = hires,
 		Act3Earned = save.Act3Earned,
-		Act3Goal = 0, -- no Act 3 goal exists yet; Earned milestones stay unreached until it does
+		Act3Goal = GameConfig.ACT3.Goal,
 		Flags = save.StoryFlags,
 	}
-	local reached = Story.NewMilestones(GameConfig.ACT2.Milestones :: any, state, GameConfig.ACT2.ValuationStep)
+	local reached = Story.NewMilestones(defs :: any, state, GameConfig.ACT2.ValuationStep)
 	if #reached == 0 then
 		return
 	end
@@ -110,7 +163,7 @@ function ProgressService.CheckMilestones(player: Player)
 			current.StoryFlags[`Milestone_{id}`] = true
 		end
 	end)
-	for _, milestone in GameConfig.ACT2.Milestones do
+	for _, milestone in defs do
 		if table.find(reached, milestone.Id) then
 			beat(player, "Milestone", { Title = milestone.Title, Body = milestone.Body })
 		end
@@ -128,11 +181,17 @@ local function onDeployed(player: Player, _payout: number)
 	else
 		ProgressService.CheckMilestones(player)
 	end
-	if save.Act >= 2 and Story.ActGoalReached(save.Act, save.Valuation, save.ActGoal) and not save.StoryFlags.Act2Complete then
+	if save.Act == 2 and Story.ActGoalReached(save.Act, save.Valuation, save.ActGoal) and not save.StoryFlags.Act2Complete then
 		StartupDataModule.Update(player, function(current)
 			current.StoryFlags.Act2Complete = true
 		end)
-		beat(player, "Act2Complete", nil)
+		sendNextBeat(player) -- Act2End
+	elseif save.Act == 3 and save.Act3Earned >= GameConfig.ACT3.Goal and not save.StoryFlags.GameComplete then
+		StartupDataModule.Update(player, function(current)
+			current.StoryFlags.GameComplete = true
+		end)
+		StartupNameService.RefreshReplayPrompt(player)
+		sendNextBeat(player) -- Finale
 	end
 end
 
@@ -162,6 +221,7 @@ function ProgressService.Start()
 	AssemblyService.OnDeployed(onDeployed)
 	PlotService.OnPromptTriggered("Sibling", onSibling)
 	RemoteManager.Listen(RemoteNames.CutsceneDone, onCutsceneDone, 2, 1)
+	StartupNameService.OnReplayEnding(onReplayEnding)
 end
 
 return ProgressService

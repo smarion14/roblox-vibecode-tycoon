@@ -87,10 +87,9 @@ local function notice(player: Player, text: string)
 	RemoteManager.FireClient(RemoteNames.Notice, player, text)
 end
 
--- No incident starts during a minigame, battle or owed cutscene.
-local function isBusy(player: Player, save: StartupDataModule.PlayerSave): boolean
-	local story = { Act = save.Act, SeenIntro = save.SeenIntro, RentPaid = save.RentPaid, Flags = save.StoryFlags }
-	return StartupDataModule.GetActivity(player) ~= "Idle" or Story.NextBeat(story) ~= nil
+-- No incident starts during a minigame or battle (an owed cutscene drops the whole schedule, see tickPlayer).
+local function isBusy(player: Player): boolean
+	return StartupDataModule.GetActivity(player) ~= "Idle"
 end
 
 local function taggedInUnit(player: Player, tag: string): { BasePart }
@@ -169,16 +168,28 @@ local function tickPlayer(player: Player)
 		return
 	end
 	local freePlay = isFreePlay(save)
-	local ps = states[player]
-	if not ps then
-		ps = { Incidents = Incidents.New(now(), nextNumber, freePlay, CONFIG), Response = nil }
-		states[player] = ps
-	end
-	if ps.Response then
+	local existing = states[player]
+	if existing and existing.Response then
 		return -- the incident being answered can neither expire nor be replaced mid-minigame
 	end
+	-- An owed story scene (Act3Intro, Finale) drops the schedule, and any open alert with it. A fresh one starts once
+	-- the scene is watched, so the first incident lands MinGap..MaxGap after the Act 3 opening and the finale
+	-- switches to the free-play gaps.
+	local story = { Act = save.Act, SeenIntro = save.SeenIntro, RentPaid = save.RentPaid, Flags = save.StoryFlags }
+	if Story.NextBeat(story) ~= nil then
+		if existing then
+			states[player] = nil
+			if existing.Incidents.Active then
+				RemoteManager.FireClient(RemoteNames.IncidentState, player, nil)
+				setLights(player, nil)
+			end
+		end
+		return
+	end
+	local ps: PlayerState = existing or { Incidents = Incidents.New(now(), nextNumber, freePlay, CONFIG), Response = nil }
+	states[player] = ps
 	local before = ps.Incidents.Active
-	local events = Incidents.Tick(ps.Incidents, now(), isBusy(player, save), nextNumber, freePlay, save.Hires, CONFIG, GameConfig.COMPONENTS)
+	local events = Incidents.Tick(ps.Incidents, now(), isBusy(player), nextNumber, freePlay, save.Hires, CONFIG, GameConfig.COMPONENTS)
 	local repDelta = 0
 	local changed = false
 	for _, event in events do

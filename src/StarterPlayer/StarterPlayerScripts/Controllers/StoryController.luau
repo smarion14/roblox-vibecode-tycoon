@@ -1,5 +1,6 @@
 --!strict
--- Sibling texts as phone toasts, cutscene beats handed to CutsceneController, and the full-screen card when Act 2 ends.
+-- Sibling texts as phone toasts, cutscene beats handed to CutsceneController (story scenes and the finale replay from
+-- the startup sign), milestone banners and the Act 2 tutorial pages.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -43,37 +44,6 @@ local function showText(message: any)
 			Juice.SlideOut(toast, UDim2.fromOffset(340, 0))
 		end
 	end)
-end
-
-local function showCard(lines: { string }, ending: string)
-	for _, child in cardBody:GetChildren() do
-		if child:IsA("GuiObject") then
-			child:Destroy()
-		end
-	end
-	for index, line in lines do
-		Theme.Text(cardBody, line, 22).LayoutOrder = index
-	end
-	local endingLabel = Theme.Text(cardBody, ending, 30, Theme.ACCENT)
-	endingLabel.LayoutOrder = #lines + 1
-	local close = Theme.Button(cardBody, "Keep playing", 16)
-	close.LayoutOrder = #lines + 2
-	close.Activated:Connect(function()
-		card.Visible = false
-	end)
-	card.Visible = true
-	Sfx.Play("Banner")
-	-- Lines rise into place one after another.
-	local delayIndex = 0
-	for _, child in cardBody:GetChildren() do
-		if child:IsA("GuiObject") then
-			delayIndex += 1
-			child.Visible = false
-			task.delay(0.15 + delayIndex * 0.25, function()
-				Juice.SlideIn(child, UDim2.fromOffset(0, 24))
-			end)
-		end
-	end
 end
 
 -- A milestone gets a banner slam and its line floating up underneath. Several at once play one after another.
@@ -131,8 +101,6 @@ local function onBeat(kind: any, payload: any)
 		showMilestone(payload)
 	elseif kind == "Act2Tutorial" then
 		showPages(StoryText.ACT2_TUTORIAL, 1)
-	elseif kind == "Act2Complete" then
-		showCard({ "You hit your valuation goal." }, "Act 2 complete. To be continued.")
 	end
 end
 
