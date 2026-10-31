@@ -231,6 +231,8 @@ function StartupDataModule.SetActivity(player: Player, activity: Activity)
 	if session then
 		session.Activity = activity
 	end
+	-- Replicated so the client can hold the character still while a minigame or battle has the keyboard.
+	player:SetAttribute("Activity", activity)
 end
 
 function StartupDataModule.Start()

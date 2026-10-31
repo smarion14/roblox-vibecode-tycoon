@@ -48,9 +48,11 @@ function WorldBuilder.BuildContents(unit: Model, act: number)
 end
 
 function WorldBuilder.SetSignText(unit: Model, text: string)
-	local label = unit:FindFirstChild("SignText", true)
-	if label and label:IsA("TextLabel") then
-		label.Text = text
+	-- The outdoor sign and the office poster both carry a "SignText" label.
+	for _, label in unit:GetDescendants() do
+		if label.Name == "SignText" and label:IsA("TextLabel") then
+			label.Text = text
+		end
 	end
 end
 

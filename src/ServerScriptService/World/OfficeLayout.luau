@@ -304,6 +304,9 @@ function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
 	-- The startup's poster by the door; interacting renames the startup.
 	local sign = part(contents, "StartupSign", Vector3.new(4, 3, 0.3), origin * CFrame.new(-24, 4.5, 28) * CFrame.Angles(0, math.pi, 0), COLOR_SCREEN, Enum.Material.SmoothPlastic)
 	screenLabel(sign, "YOUR STARTUP\nHERE", COLOR_PINK)
+	-- Named so WorldBuilder.SetSignText shows the startup's name on the poster too.
+	local posterLabel = sign:FindFirstChild("TextLabel", true) :: TextLabel
+	posterLabel.Name = "SignText"
 	part(contents, "StartupSignStand", Vector3.new(0.3, 3, 0.3), origin * CFrame.new(-24, 1.5, 28.2), COLOR_BEZEL, Enum.Material.Metal)
 	interactable(sign, "StartupSign", "Rename", "Startup Sign")
 
