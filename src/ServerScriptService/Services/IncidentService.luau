@@ -17,11 +17,13 @@
 --       The round ends on its own one second after the last packet's ArriveAt.
 --     Triage: one call, inputs = { [reportId]: "Critical" | "Minor" | "NotABug" }
 --     ClapBack: one call, inputs = { [postIndex]: replyIndex }
+--     A Triage/ClapBack sheet with no valid answer is ignored (the round goes on until TimeLimit).
 --   IncidentResult(grade, repDelta, newRep)
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -32,9 +34,9 @@ local Incidents = require(Shared:WaitForChild("Incidents"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local Reputation = require(Shared:WaitForChild("Reputation"))
 local Story = require(Shared:WaitForChild("Story"))
-local StoryText = require(Shared:WaitForChild("StoryText"))
 local Triage = require(Shared:WaitForChild("Triage"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
+local IncidentBanks = require(ServerStorage:WaitForChild("IncidentBanks"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 local ProgressService = require(script.Parent:WaitForChild("ProgressService"))
@@ -266,7 +268,7 @@ local function onDesk(player: Player, desk: BasePart)
 		response.EndsAt = startedAt + lastArrival + FIREWALL_END_SLACK
 		roundData = { Packets = round.Packets, TravelSeconds = FIREWALL_TRAVEL_SECONDS }
 	elseif kind == "Vulnerability" then
-		local round = Triage.New(nextNumber, { Short = save.Hires.QAManager == true, Bank = StoryText.TRIAGE_REPORTS })
+		local round = Triage.New(nextNumber, { Short = save.Hires.QAManager == true, Bank = IncidentBanks.TRIAGE_REPORTS })
 		local reports = {}
 		for _, report in round.Reports do
 			table.insert(reports, { Id = report.Id, Text = report.Text }) -- never the answer
@@ -276,7 +278,7 @@ local function onDesk(player: Player, desk: BasePart)
 		response.EndsAt = startedAt + timeLimit + LATENCY_GRACE
 		roundData = { Reports = reports, TimeLimit = timeLimit }
 	else
-		local round = ClapBack.New(nextNumber, { Short = save.Hires.PRLead == true, Bank = StoryText.CLAPBACK_POSTS })
+		local round = ClapBack.New(nextNumber, { Short = save.Hires.PRLead == true, Bank = IncidentBanks.CLAPBACK_POSTS })
 		local posts = {}
 		for _, post in round.Posts do
 			table.insert(posts, { Post = post.Post, Replies = post.Replies }) -- never the best index
@@ -300,11 +302,13 @@ local function onDesk(player: Player, desk: BasePart)
 	end)
 end
 
--- Client answer maps arrive with number or string keys; keep at most MAX_ANSWERS well-formed entries.
-local function cleanAnswers(inputs: any, isValid: (value: any) -> boolean): { [number]: any }
+-- Client answer maps arrive with number or string keys; keep well-formed entries for items 1..count (read at most
+-- MAX_ANSWERS). Returns nil when nothing was answered: a blank sheet doesn't end the round.
+local function cleanAnswers(inputs: any, count: number, isValid: (value: any) -> boolean): { [number]: any }?
 	local clean: { [number]: any } = {}
+	local answered = 0
 	if type(inputs) ~= "table" then
-		return clean
+		return nil
 	end
 	local seen = 0
 	for key, value in inputs do
@@ -313,11 +317,12 @@ local function cleanAnswers(inputs: any, isValid: (value: any) -> boolean): { [n
 			break
 		end
 		local index = tonumber(key)
-		if index and index % 1 == 0 and isValid(value) then
+		if index and index % 1 == 0 and index >= 1 and index <= count and isValid(value) and clean[index] == nil then
 			clean[index] = value
+			answered += 1
 		end
 	end
-	return clean
+	return if answered > 0 then clean else nil
 end
 
 local function isTriageAnswer(value: any): boolean
@@ -345,10 +350,14 @@ local function onAction(player: Player, inputs: any)
 			return -- the packet isn't on screen yet
 		end
 		table.insert(response.Taps, { Id = packet.Id, At = at })
-	elseif response.Triage then
-		finish(player, ps, response, cleanAnswers(inputs, isTriageAnswer))
 	else
-		finish(player, ps, response, cleanAnswers(inputs, isReplyIndex))
+		local triage = response.Triage
+		local answers = if triage
+			then cleanAnswers(inputs, #triage.Reports, isTriageAnswer)
+			else cleanAnswers(inputs, #(response.ClapBack :: ClapBack.Round).Posts, isReplyIndex)
+		if answers then
+			finish(player, ps, response, answers)
+		end
 	end
 end
 

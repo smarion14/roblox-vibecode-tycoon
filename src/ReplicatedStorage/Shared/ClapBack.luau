@@ -1,6 +1,6 @@
 --!strict
 -- Pure: no requires, no Roblox APIs. Clap-back incident minigame: answer angry posts with the best of three
--- replies. The post bank (StoryText.CLAPBACK_POSTS) is passed in through options.Bank.
+-- replies. The post bank (ServerStorage IncidentBanks.CLAPBACK_POSTS) is passed in through options.Bank.
 
 export type Grade = "S" | "A" | "B" | "C"
 export type BankEntry = { Post: string, Replies: { string }, Best: number }

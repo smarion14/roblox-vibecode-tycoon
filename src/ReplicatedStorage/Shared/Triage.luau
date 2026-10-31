@@ -1,6 +1,6 @@
 --!strict
 -- Pure: no requires, no Roblox APIs. Triage incident minigame: sort bug reports into Critical, Minor or
--- NotABug. The report bank (StoryText.TRIAGE_REPORTS) is passed in through options.Bank.
+-- NotABug. The report bank (ServerStorage IncidentBanks.TRIAGE_REPORTS) is passed in through options.Bank.
 
 export type Grade = "S" | "A" | "B" | "C"
 export type Answer = "Critical" | "Minor" | "NotABug"

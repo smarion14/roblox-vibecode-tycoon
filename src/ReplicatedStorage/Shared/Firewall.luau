@@ -12,7 +12,7 @@ local Firewall = {}
 
 local PACKET_COUNT = 20
 local PACKET_GAP = 1 -- seconds between arrivals
-local FIRST_ARRIVAL = 2
+local FIRST_ARRIVAL = 5 -- the 3.5 s on-screen travel (IncidentService) plus a 1.5 s lead-in before packet 1 shows
 local RED_CHANCE = 0.4
 local LANES = 3
 local TAP_GRACE = 0.3 -- a tap later than ArriveAt + this is a miss

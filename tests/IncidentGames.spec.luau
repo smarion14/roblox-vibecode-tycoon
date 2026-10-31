@@ -1,7 +1,7 @@
 --!strict
 local ClapBack = require("../src/ReplicatedStorage/Shared/ClapBack")
 local Firewall = require("../src/ReplicatedStorage/Shared/Firewall")
-local StoryText = require("../src/ReplicatedStorage/Shared/StoryText")
+local IncidentBanks = require("../src/ServerStorage/IncidentBanks")
 local Triage = require("../src/ReplicatedStorage/Shared/Triage")
 
 local function makeRng(seed: number): () -> number
@@ -62,9 +62,9 @@ tests["firewall tapping a green packet is wrong"] = function()
 end
 
 tests["triage short round for QA"] = function()
-	local full = Triage.New(makeRng(4), { Bank = StoryText.TRIAGE_REPORTS })
-	local short = Triage.New(makeRng(4), { Short = true, Bank = StoryText.TRIAGE_REPORTS })
-	assert(#StoryText.TRIAGE_REPORTS == 15)
+	local full = Triage.New(makeRng(4), { Bank = IncidentBanks.TRIAGE_REPORTS })
+	local short = Triage.New(makeRng(4), { Short = true, Bank = IncidentBanks.TRIAGE_REPORTS })
+	assert(#IncidentBanks.TRIAGE_REPORTS == 15)
 	assert(#full.Reports == 10)
 	assert(#short.Reports == 6)
 	local answers: { [number]: string } = {}
@@ -77,14 +77,14 @@ tests["triage short round for QA"] = function()
 end
 
 tests["clap back shuffle keeps the best reply"] = function()
-	assert(#StoryText.CLAPBACK_POSTS == 10)
+	assert(#IncidentBanks.CLAPBACK_POSTS == 10)
 	for seed = 1, 20 do
-		local round = ClapBack.New(makeRng(seed), { Bank = StoryText.CLAPBACK_POSTS })
+		local round = ClapBack.New(makeRng(seed), { Bank = IncidentBanks.CLAPBACK_POSTS })
 		assert(#round.Posts == 5)
 		for _, post in round.Posts do
 			assert(#post.Replies == 3)
 			local bestText: string? = nil
-			for _, entry in StoryText.CLAPBACK_POSTS do
+			for _, entry in IncidentBanks.CLAPBACK_POSTS do
 				if entry.Post == post.Post then
 					bestText = entry.Replies[entry.Best]
 				end
@@ -95,7 +95,7 @@ tests["clap back shuffle keeps the best reply"] = function()
 end
 
 tests["clap back short for PR"] = function()
-	local round = ClapBack.New(makeRng(5), { Short = true, Bank = StoryText.CLAPBACK_POSTS })
+	local round = ClapBack.New(makeRng(5), { Short = true, Bank = IncidentBanks.CLAPBACK_POSTS })
 	assert(#round.Posts == 3)
 	local picks: { [number]: number } = {}
 	for index, post in round.Posts do

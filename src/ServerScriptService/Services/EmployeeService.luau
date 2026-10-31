@@ -151,7 +151,7 @@ local function spawnEmployee(player: Player, desk: BasePart, seat: Seat, role: s
 		local track = animator:LoadAnimation(animation)
 		track.Looped = true
 		track:Play()
-		track:AdjustSpeed(if desk:GetAttribute("Working") == true then 1 else 0)
+		track:AdjustSpeed(if desk:GetAttribute("Working") == true or GameConfig.KEY_HIRES[role] then 1 else 0)
 		deskTracks[desk] = track
 	end
 end
@@ -251,7 +251,7 @@ local function tickPlayer(player: Player, dt: number)
 		end
 		local track = deskTracks[desk]
 		if track and track.IsPlaying then
-			track:AdjustSpeed(if working then 1 else 0)
+			track:AdjustSpeed(if working or GameConfig.KEY_HIRES[role] then 1 else 0) -- key hires are always on duty
 		end
 	end
 end
