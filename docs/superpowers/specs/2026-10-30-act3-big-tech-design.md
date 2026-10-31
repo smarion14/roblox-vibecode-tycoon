@@ -47,6 +47,7 @@ Same in-engine cutscene style as Acts 1–2 (letterbox, scripted camera, campy c
   - **Ground floor = the main office:** the same work zone, desks and decorate zone (same size and position as Act 2), so the player's saved decor carries over unchanged. The meeting room becomes the **conference stage** entrance.
   - **Upper floor (stairs plus a quick elevator pad):** the **security desk**, the **QA lab** and the **press room**, each a station-like workstation with a prompt.
 - Only the ground-floor decorate zone is editable. The rest of the campus is fixed.
+- *(owner, 2026-10-31)* Like every plot, the campus is enclosed: a ceiling on each floor, a front wall with a sliding door, and windows on the walls. Act 3 is a multi-floor building; the designer chose **2 floors** (enough room for the upstairs rooms without long climbs between incidents). The startup's name is on an outside sign above the entrance, as in Act 2.
 - The night-light rules, the startup sign and employee desks all carry over.
 
 ## 6. Incidents *(owner: malicious actors, vulnerability hunters, naysayers; designer: mechanics)*
