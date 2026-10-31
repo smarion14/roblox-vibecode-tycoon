@@ -14,6 +14,7 @@ export type ClientDef = {
 	TierMultiplier: number,
 	UnlockAtDeploys: number,
 	Act: number,
+	Boss: string?,
 }
 
 export type GearDef = {

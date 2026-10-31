@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BattleState = require(Shared:WaitForChild("BattleState"))
 local Economy = require(Shared:WaitForChild("Economy"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
+local Reputation = require(Shared:WaitForChild("Reputation"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
@@ -89,6 +90,11 @@ function AssemblyService.SettleDeploy(player: Player, result: BattleState.Battle
 	StartupDataModule.Update(player, function(save)
 		local score = Economy.PerformanceScore(result.MoodRatio, result.Accuracy, result.MaxCombo)
 		payout = Economy.Payout(Economy.TotalUnits(save.Inventory), save.Valuation, score, job.TierMultiplier)
+		if save.Act == 3 then
+			local act3 = GameConfig.ACT3
+			payout = math.floor(payout * Reputation.Multiplier(save.Reputation, act3.MinMultiplier, act3.MaxMultiplier))
+			save.Act3Earned += payout
+		end
 		save.Cash += payout
 		save.Valuation += Economy.ValuationGain(score)
 		save.DeploysShipped += 1

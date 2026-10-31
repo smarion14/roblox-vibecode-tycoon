@@ -95,6 +95,17 @@ tests["clients by act"] = function()
 	assert(#Economy.AvailableClients(clients, 2, 4) == 3)
 end
 
+tests["act 3 clients unlock by act deploys"] = function()
+	local clients = GameConfig.CLIENTS
+	local first = Economy.AvailableClients(clients, 3, 0)
+	assert(#first == 1 and first[1].Id == "GlobalPayments")
+	local all = Economy.AvailableClients(clients, 3, 4)
+	assert(#all == 3)
+	for _, client in all do
+		assert(client.Act == 3)
+	end
+end
+
 tests["gear"] = function()
 	local rules, preview = Economy.ApplyGear(
 		GameConfig.BURST_RULES,

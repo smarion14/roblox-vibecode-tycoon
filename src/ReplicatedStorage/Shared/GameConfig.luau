@@ -8,6 +8,7 @@ export type ClientDef = {
 	TierMultiplier: number,
 	UnlockAtDeploys: number, -- counted on deploys shipped within the client's act
 	Act: number,
+	Boss: string?, -- Act 3 deploy boss: "Hacker" | "Naysayer" | "Swarm"
 }
 
 export type GearDef = {
@@ -46,6 +47,8 @@ GameConfig.RECIPES = {
 	LandingPage = { FrontendUnits = 2, BackendEndpoints = 1, DatabaseTables = 1, PromptTokens = 1 },
 	MobileApp = { FrontendUnits = 2, BackendEndpoints = 2, DatabaseTables = 1, PromptTokens = 1 },
 	Game = { FrontendUnits = 1, BackendEndpoints = 1, DatabaseTables = 1, PromptTokens = 3 },
+	Platform = { FrontendUnits = 2, BackendEndpoints = 3, DatabaseTables = 2, PromptTokens = 1 },
+	Dashboard = { FrontendUnits = 3, BackendEndpoints = 2, DatabaseTables = 1, PromptTokens = 1 },
 } :: { [string]: { [string]: number } }
 
 GameConfig.CLIENTS = {
@@ -56,6 +59,10 @@ GameConfig.CLIENTS = {
 	{ Id = "PocketFit", Name = "PocketFit Fitness App", Project = "MobileApp", TierMultiplier = 55, UnlockAtDeploys = 0, Act = 2 },
 	{ Id = "PixelForge", Name = "PixelForge Indie Studio", Project = "Game", TierMultiplier = 70, UnlockAtDeploys = 2, Act = 2 },
 	{ Id = "BrewCrew", Name = "BrewCrew Coffee Rewards", Project = "MobileApp", TierMultiplier = 85, UnlockAtDeploys = 4, Act = 2 },
+	-- Act 3: big tech contracts. Each one ends in a boss deploy.
+	{ Id = "GlobalPayments", Name = "Global Payments Platform", Project = "Platform", TierMultiplier = 110, UnlockAtDeploys = 0, Act = 3, Boss = "Hacker" },
+	{ Id = "SmartCity", Name = "Smart City Dashboard", Project = "Dashboard", TierMultiplier = 130, UnlockAtDeploys = 2, Act = 3, Boss = "Naysayer" },
+	{ Id = "StreamingRelaunch", Name = "Streaming Service Relaunch", Project = "Platform", TierMultiplier = 160, UnlockAtDeploys = 4, Act = 3, Boss = "Swarm" },
 } :: { ClientDef }
 
 GameConfig.GEAR = {
@@ -184,6 +191,20 @@ GameConfig.ACT2 = {
 		{ Id = "PixelForge", Act = 2, Kind = "ActDeploys", At = 2, Title = "NEW CLIENT", Body = "PixelForge Indie Studio wants a game." },
 		{ Id = "BrewCrew", Act = 2, Kind = "ActDeploys", At = 4, Title = "NEW CLIENT", Body = "BrewCrew Coffee Rewards wants an app." },
 		{ Id = "Halfway", Act = 2, Kind = "GoalProgress", At = 0.5, Title = "HALFWAY THERE", Body = "Investors are starting to call back." },
+	} :: { Milestone },
+}
+
+-- Act 3 ends when lifetime Act 3 earnings reach Goal. Payouts scale by reputation (MinMultiplier..MaxMultiplier, 0-100).
+GameConfig.ACT3 = {
+	Goal = 40000,
+	StartReputation = 50,
+	MinMultiplier = 0.8,
+	MaxMultiplier = 1.5,
+	Milestones = {
+		{ Id = "FirstIncident", Act = 3, Kind = "Flag", Flag = "IncidentHandled", At = 1, Title = "FIRST INCIDENT HANDLED", Body = "The hackers will be back. You'll be ready." },
+		{ Id = "FirstConference", Act = 3, Kind = "Flag", Flag = "ConferenceGiven", At = 1, Title = "FIRST KEYNOTE", Body = "The crowd went wild. Reputation up." },
+		{ Id = "FirstKeyHire", Act = 3, Kind = "Hires", At = 1, Title = "KEY HIRE", Body = "A specialist joins the team." },
+		{ Id = "Halfway", Act = 3, Kind = "Earned", At = 0.5, Title = "HALFWAY THERE", Body = "$20,000 down. Keep shipping." },
 	} :: { Milestone },
 }
 
