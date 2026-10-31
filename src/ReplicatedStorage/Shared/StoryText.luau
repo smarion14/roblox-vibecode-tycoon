@@ -54,10 +54,25 @@ StoryText.ACT2_TUTORIAL = {
 	{ Title = "Ship it", Body = "Your team builds the parts, but you run every deploy at the meeting-room screen. Hit your valuation goal to finish Act 2." },
 } :: { { Title: string, Body: string } }
 
+-- Act 2 ending: {name} is the startup name.
+StoryText.ACT2_END_TICKER = "BREAKING: {name} closes record funding round"
+
+StoryText.ACT3_INTRO_TEXT = "One year later…"
+StoryText.BROTHER_TEXT_ACT3 = "saw you on the news. don't let it go to your head."
+
+-- Finale cutscene: the brother visits the campus lobby.
+StoryText.FINALE = {
+	{ Speaker = "Brother", Text = "...Okay. This is actually impressive." },
+	{ Speaker = "Brother", Text = "I'm still not calling it real coding." },
+	{ Speaker = "Brother", Text = "...Proud of you. Don't make it weird." },
+} :: { { Speaker: string, Text: string } }
+
 StoryText.ACT_TITLES = {
 	Act1 = "ACT 1: MAKE RENT",
 	Act1Done = "ACT 1 COMPLETE",
 	Act2 = "ACT 2: MOVE OUT",
+	Act2Done = "ACT 2 COMPLETE",
+	Act3 = "ACT 3: BIG TECH",
 }
 
 return StoryText

@@ -246,7 +246,7 @@ local function buildDecorZoneOutline(contents: Instance, origin: CFrame)
 	strip(Vector3.new(thickness, 0.05, z1 - z0), x1, (z0 + z1) / 2)
 end
 
--- Cutscene markers for Act2Intro (names match Cutscenes.OFFICE_MARKERS).
+-- Cutscene markers for Act2Intro and Act2End (names match Cutscenes.OFFICE_MARKERS).
 local function buildMarkers(contents: Instance, origin: CFrame)
 	local function at(x: number, y: number, z: number): Vector3
 		return (origin * CFrame.new(x, y, z)).Position
@@ -260,6 +260,8 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	local deskRowX = (STATION_X[1] + STATION_X[#STATION_X]) / 2
 	look("CamDesks", at(deskRowX, 11, 0), at(deskRowX, 3, DESK_Z - 2))
 	look("CamSign", at(-24, 5, 22), at(-24, 4.5, 28))
+	-- End of the pull-back from CamDesks: behind and above the desk row, near the front wall, looking down the office.
+	look("CamPullBack", at(deskRowX, 12, 28), at(deskRowX, 3, DESK_Z - 2))
 	look("PlayerDoor", at(0, 0, 36), at(0, 0, 0))
 	look("PlayerCenter", at(0, 0, 6), at(0, 0, -10))
 end

@@ -10,6 +10,13 @@ local COPY = {
 	Act2Text = StoryText.ACT2_INTRO_TEXT,
 	BrotherText = StoryText.BROTHER_TEXT_ACT2,
 	Titles = StoryText.ACT_TITLES,
+	Act3Goal = 40000,
+	StartupName = "Night Shift Labs",
+	PlayerName = "Ada",
+	Act2Ticker = StoryText.ACT2_END_TICKER,
+	Act3Text = StoryText.ACT3_INTRO_TEXT,
+	BrotherTextAct3 = StoryText.BROTHER_TEXT_ACT3,
+	Finale = StoryText.FINALE,
 }
 
 local function lines(steps: { Cutscenes.Step }): { string }
@@ -87,6 +94,52 @@ tests["the rent threat is delivered under stress"] = function()
 		end
 	end
 	error("rent threat line missing")
+end
+
+tests["act 3 scenes validate against their layouts"] = function()
+	local ok1, err1 = Cutscenes.Validate(Cutscenes.Get("Act2End", COPY), Cutscenes.OFFICE_MARKERS)
+	assert(ok1, err1)
+	local ok2, err2 = Cutscenes.Validate(Cutscenes.Get("Act3Intro", COPY), Cutscenes.CAMPUS_MARKERS)
+	assert(ok2, err2)
+	local ok3, err3 = Cutscenes.Validate(Cutscenes.Get("Finale", COPY), Cutscenes.CAMPUS_MARKERS)
+	assert(ok3, err3)
+end
+
+tests["finale lines are exact and focused"] = function()
+	local steps = Cutscenes.Get("Finale", COPY)
+	local found = lines(steps)
+	assert(table.find(found, "...Okay. This is actually impressive."))
+	assert(table.find(found, "I'm still not calling it real coding."))
+	assert(table.find(found, "...Proud of you. Don't make it weird."))
+	local fx: { string } = {}
+	for _, step in steps do
+		if step.Kind == "Line" and step.Speaker == "Brother" then
+			assert(step.Focus == "Brother", `"{step.Text}" doesn't focus the brother`)
+			table.insert(fx, step.Fx :: string)
+		end
+	end
+	assert(table.concat(fx, ",") == "Push,Shout,Push")
+end
+
+tests["credits name the player and startup"] = function()
+	for _, step in Cutscenes.Get("Finale", COPY) do
+		if step.Kind == "Credits" then
+			assert(table.find(step.Lines :: { string }, "Founded by Ada"))
+			assert(table.find(step.Lines :: { string }, "Night Shift Labs"))
+			return
+		end
+	end
+	error("credits step missing")
+end
+
+tests["act 2 ending names the startup and act 3 states the goal"] = function()
+	for _, step in Cutscenes.Get("Act2End", COPY) do
+		if step.Prop == "NewsTicker" then
+			assert(step.Text == "BREAKING: Night Shift Labs closes record funding round")
+		end
+	end
+	local steps = Cutscenes.Get("Act3Intro", COPY)
+	assert(steps[#steps].Sub == "Earn $40,000")
 end
 
 tests["validate rejects an unknown effect"] = function()
