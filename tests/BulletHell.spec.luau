@@ -88,12 +88,14 @@ end
 tests["ship moves are clamped"] = function()
 	local b = battleWith({})
 	BulletHell.MoveShip(b, 0.5, 0.85, START + 1)
-	local x0, y0 = BulletHell.ShipAt(b, START + 1)
+	local before = b.ShipSamples[#b.ShipSamples]
 	for _ = 1, 10 do
 		BulletHell.MoveShip(b, 1, 0.1, START + 1)
 	end
-	local x, y = BulletHell.ShipAt(b, START + 1)
-	assert(math.sqrt((x - x0) ^ 2 + (y - y0) ^ 2) <= CFG.ShipSlack + EPSILON, "a burst moves at most ShipSlack")
+	local after = b.ShipSamples[#b.ShipSamples]
+	local burst = math.sqrt((after.X - before.X) ^ 2 + (after.Y - before.Y) ^ 2)
+	assert(burst > CFG.ShipSlack - EPSILON, "the burst used its slack")
+	assert(burst <= CFG.ShipSlack + EPSILON, "a burst moves at most ShipSlack")
 	assert(#b.ShipSamples <= 3, "a burst doesn't grow the sample list")
 
 	-- y stays inside [ShipMinY, ShipMaxY] however far the ship is allowed to fly
@@ -110,11 +112,25 @@ tests["ship moves are clamped"] = function()
 	local nx, ny = BulletHell.ShipAt(b, START + 30)
 	assert(nx == 0.5 and math.abs(ny - CFG.ShipMaxY) < EPSILON, "bad input left the ship alone")
 
-	-- a long stream stays bounded
-	for i = 1, 500 do
-		BulletHell.MoveShip(b, 0.5, 0.6, START + 30 + i * 0.1)
+	-- a fast stream stays bounded: samples two apart are >= 0.05 s apart, so a 2 s window keeps at most 81, plus the anchor
+	local most = 0
+	for i = 1, 2000 do
+		BulletHell.MoveShip(b, 0.5, 0.6, START + 30 + i * 0.026)
+		most = math.max(most, #b.ShipSamples)
 	end
-	assert(#b.ShipSamples <= 2 / 0.05 + 2, "sample list bounded by the window")
+	assert(most > 2 / 0.05 + 2, "samples can be closer than the minimum gap")
+	assert(most <= 2 * 2 / 0.05 + 2, "sample list bounded by the window")
+end
+
+tests["a move is limited by elapsed time"] = function()
+	local b = battleWith({})
+	BulletHell.MoveShip(b, 0.5, 0.85, START + 5)
+	local before = b.ShipSamples[#b.ShipSamples]
+	BulletHell.MoveShip(b, 0.04, 0.35, START + 5.1)
+	local after = b.ShipSamples[#b.ShipSamples]
+	local moved = math.sqrt((after.X - before.X) ^ 2 + (after.Y - before.Y) ^ 2)
+	assert(moved <= CFG.ShipSpeed * 0.1 + CFG.ShipSlack + EPSILON, "at most speed x time + slack")
+	assert(moved > CFG.ShipSpeed * 0.1 + CFG.ShipSlack - EPSILON, "and the full allowance is granted")
 end
 
 tests["a dodge is judged at the bullet's time"] = function()
@@ -135,6 +151,21 @@ tests["a dodge is judged at the bullet's time"] = function()
 	BulletHell.Tick(c, crossAt + 1)
 	assert(c.Lives == CFG.Lives, "ship was away when the bullet crossed")
 	assert(c.Grazes == 0, "too far to graze")
+end
+
+tests["a full-speed sweep between substeps still hits"] = function()
+	-- the ship crosses x = 0.5 at full speed halfway between two 1/30 s grid steps, while the bullet crosses y = 0.8
+	local crossAt = START + 2 + 1 / 60
+	local function shipX(t: number): number
+		return 0.5 + CFG.ShipSpeed * (t - crossAt)
+	end
+	local b = battleWith({ fallingBullet(1, 0.5, 0.8, crossAt) })
+	BulletHell.MoveShip(b, shipX(START + 1.9), 0.8, START + 0.5)
+	BulletHell.MoveShip(b, shipX(START + 1.9), 0.8, START + 1.9)
+	BulletHell.MoveShip(b, shipX(START + 2.1), 0.8, START + 2.1)
+	assert(math.abs(b.ShipSamples[#b.ShipSamples].X - shipX(START + 2.1)) < EPSILON, "the sweep was allowed")
+	BulletHell.Tick(b, START + 3)
+	assert(b.Lives == CFG.Lives - 1, "swept through the bullet: a hit")
 end
 
 tests["judging waits for the latency grace"] = function()
