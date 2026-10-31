@@ -2,6 +2,7 @@
 -- Act 3 conference keynote on the client (spec §9): the stage camera, the slogan prompt with its closing beat ring,
 -- the typing box, the crowd hype meter, and the results card. The server stamps and judges every slogan; the hype
 -- meter, bouncing audience and pulsing stage lights are local guesses for feel only.
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -36,6 +37,7 @@ local HYPE_FLUB = 0.1
 local HYPE_MISS = 0.12
 local RING_LEAD = 1.5 -- seconds the beat ring takes to close onto a slogan's window
 local RING_SIZE = 76
+local SAY_WIDTH = 100
 local BOUNCE_MIN, BOUNCE_MAX = 0.1, 1.4 -- studs
 local LIGHT_AMBER = Color3.fromRGB(255, 184, 79)
 -- Over the speaker's right shoulder, looking out over the podium at the crowd (podium-local +Z).
@@ -113,6 +115,10 @@ local function stopShow()
 		beam:Destroy()
 	end
 	box:ReleaseFocus()
+	local selected = GuiService.SelectedObject
+	if selected and selected:IsDescendantOf(stage) then
+		GuiService.SelectedObject = nil
+	end
 	box.Text = ""
 	stage.Visible = false
 	gui.Enabled = false
@@ -126,7 +132,7 @@ local function submit(current: Show)
 	end
 	local index = Keynote.WindowAt(current.Round, clock(current))
 	if not index then
-		hintLabel.Text = "WAIT FOR THE BEAT — hit Enter as the ring closes"
+		hintLabel.Text = "WAIT FOR THE BEAT"
 		hintLabel.TextColor3 = Theme.BUG
 		Juice.Shake(box)
 		Sfx.Play("KeyWrong")
@@ -177,7 +183,7 @@ local function step(current: Show)
 		sloganLabel.Text = if slogan then slogan.Text else "THANK YOU!"
 		local upcoming = slogans[index + 1]
 		nextLabel.Text = if upcoming and slogan then `NEXT: {upcoming.Text}` else ""
-		hintLabel.Text = if slogan then "Type it, hit Enter as the ring closes" else "Waiting for the crowd..."
+		hintLabel.Text = if slogan then "Send it as the ring closes" else "Waiting for the crowd..."
 		hintLabel.TextColor3 = Theme.MUTED
 	end
 
@@ -286,14 +292,15 @@ local function onStart(data: any)
 		end
 	end))
 	table.insert(current.Connections, box.FocusLost:Connect(function(enterPressed: boolean)
+		-- Only Enter keeps the box focused: tapping away must still close the phone keyboard and reach the menu.
 		if enterPressed then
 			submit(current)
+			task.defer(function()
+				if show == current then
+					box:CaptureFocus()
+				end
+			end)
 		end
-		task.defer(function()
-			if show == current then
-				box:CaptureFocus()
-			end
-		end)
 	end))
 	box:CaptureFocus()
 
@@ -411,8 +418,9 @@ local function build()
 	hypeFill.Size = UDim2.fromScale(START_HYPE, 1)
 	hypeFill.Parent = bar
 
-	local panel = Theme.Panel(stage, UDim2.fromOffset(460, 200), UDim2.new(0.5, 0, 1, -16))
-	panel.AnchorPoint = Vector2.new(0.5, 1)
+	-- The prompt sits in the top half under the meter: a phone keyboard covers the bottom half while typing.
+	local panel = Theme.Panel(stage, UDim2.fromOffset(460, 112), UDim2.new(0.5, 0, 0, 68))
+	panel.AnchorPoint = Vector2.new(0.5, 0)
 	local stroke = panel:FindFirstChildOfClass("UIStroke")
 	if stroke then
 		stroke.Color = Theme.ACCENT
@@ -422,7 +430,7 @@ local function build()
 	local beatHolder = Instance.new("Frame")
 	beatHolder.BackgroundTransparency = 1
 	beatHolder.Size = UDim2.fromOffset(RING_SIZE, RING_SIZE)
-	beatHolder.Position = UDim2.fromOffset(4, 8)
+	beatHolder.Position = UDim2.fromOffset(4, 6)
 	beatHolder.Parent = panel
 	local function circle(color: Color3): (Frame, UIStroke)
 		local frame = Instance.new("Frame")
@@ -448,15 +456,23 @@ local function build()
 	sloganLabel.Font = Enum.Font.GothamBlack
 	sloganLabel.AutomaticSize = Enum.AutomaticSize.None
 	sloganLabel.TextScaled = true
-	sloganLabel.Position = UDim2.fromOffset(RING_SIZE + 20, 10)
+	sloganLabel.Position = UDim2.fromOffset(RING_SIZE + 20, 0)
 	sloganLabel.Size = UDim2.new(1, -(RING_SIZE + 20), 0, 46)
 	local textLimit = Instance.new("UITextSizeConstraint")
 	textLimit.MaxTextSize = 40
 	textLimit.Parent = sloganLabel
 
 	nextLabel = Theme.Text(panel, "", 14, Theme.MUTED)
-	nextLabel.Position = UDim2.fromOffset(RING_SIZE + 20, 60)
+	nextLabel.Position = UDim2.fromOffset(RING_SIZE + 20, 50)
 	nextLabel.Size = UDim2.new(1, -(RING_SIZE + 20), 0, 18)
+
+	hintLabel = Theme.Text(panel, "", 14, Theme.MUTED)
+	hintLabel.Position = UDim2.fromOffset(RING_SIZE + 20, 72)
+	hintLabel.Size = UDim2.new(1, -(RING_SIZE + 20), 0, 18)
+
+	-- Only the input stays at the bottom, where the phone keyboard's own entry bar takes over anyway.
+	local inputPanel = Theme.Panel(stage, UDim2.fromOffset(460, 64), UDim2.new(0.5, 0, 1, -16))
+	inputPanel.AnchorPoint = Vector2.new(0.5, 1)
 
 	box = Instance.new("TextBox")
 	box.BackgroundColor3 = Theme.PANEL
@@ -468,9 +484,8 @@ local function build()
 	box.PlaceholderColor3 = Theme.TODO
 	box.ClearTextOnFocus = false
 	box.Text = ""
-	box.Position = UDim2.fromOffset(0, 104)
-	box.Size = UDim2.new(1, 0, 0, 44)
-	box.Parent = panel
+	box.Size = UDim2.new(1, -(SAY_WIDTH + 8), 1, 0)
+	box.Parent = inputPanel
 	local boxCorner = Instance.new("UICorner")
 	boxCorner.CornerRadius = UDim.new(0, 6)
 	boxCorner.Parent = box
@@ -479,10 +494,17 @@ local function build()
 	boxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	boxStroke.Parent = box
 
-	hintLabel = Theme.Text(panel, "", 14, Theme.MUTED)
-	hintLabel.TextXAlignment = Enum.TextXAlignment.Center
-	hintLabel.Position = UDim2.fromOffset(0, 154)
-	hintLabel.Size = UDim2.new(1, 0, 0, 18)
+	-- Touch and gamepad submit: same send path as Enter.
+	local sayButton = Theme.Button(inputPanel, "SAY IT", 16)
+	sayButton.AnchorPoint = Vector2.new(1, 0)
+	sayButton.Position = UDim2.fromScale(1, 0)
+	sayButton.Size = UDim2.new(0, SAY_WIDTH, 1, 0)
+	sayButton.Activated:Connect(function()
+		local current = show
+		if current then
+			submit(current)
+		end
+	end)
 
 	fxLayer = Instance.new("Frame")
 	fxLayer.BackgroundTransparency = 1

@@ -55,6 +55,16 @@ tests["late or wrong text misses"] = function()
 	assert(late.Correct == 0 and early.Correct == 0 and wrong.Correct == 0 and garbage.Correct == 0)
 end
 
+tests["late grace boundary"] = function()
+	local round = newRound()
+	local slogan = round.Slogans[3]
+	local justLate = Keynote.Judge(round, { [3] = { Text = slogan.Text, At = slogan.CloseAt + 0.2 } })
+	local tooLate = Keynote.Judge(round, { [3] = { Text = slogan.Text, At = slogan.CloseAt + 0.3 } })
+	assert(justLate.Correct == 1, "CloseAt + 0.2 still counts")
+	assert(tooLate.Correct == 0, "CloseAt + 0.3 misses")
+	assert(Keynote.WindowAt(round, slogan.CloseAt + 0.2) == 3 and Keynote.WindowAt(round, slogan.CloseAt + 0.3) == nil)
+end
+
 tests["grade and reputation"] = function()
 	local round = newRound()
 	local all: { [number]: Keynote.Submission } = {}
