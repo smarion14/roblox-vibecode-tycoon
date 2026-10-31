@@ -30,6 +30,9 @@ local RemoteNames = {
 	IncidentStart = "IncidentStart",
 	IncidentAction = "IncidentAction",
 	IncidentResult = "IncidentResult",
+	ConferenceStart = "ConferenceStart",
+	ConferenceAction = "ConferenceAction",
+	ConferenceResult = "ConferenceResult",
 }
 
 return RemoteNames

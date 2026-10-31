@@ -67,6 +67,22 @@ StoryText.FINALE = {
 	{ Speaker = "Brother", Text = "...Proud of you. Don't make it weird." },
 } :: { { Speaker: string, Text: string } }
 
+-- Conference keynote slogans (Keynote.New draws 8 per keynote): short, campy, typed on the beat.
+StoryText.KEYNOTE_SLOGANS = {
+	"SHIP FAST",
+	"AI-NATIVE",
+	"WE'RE HIRING",
+	"DISRUPT IT",
+	"TEN X",
+	"SCALE IT",
+	"ZERO BUGS",
+	"CLOUD FIRST",
+	"PIVOT HARD",
+	"VIBES ONLY",
+	"FULL STACK",
+	"BUILT DIFFERENT",
+}
+
 StoryText.ACT_TITLES = {
 	Act1 = "ACT 1: MAKE RENT",
 	Act1Done = "ACT 1 COMPLETE",
