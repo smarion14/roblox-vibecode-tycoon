@@ -204,7 +204,7 @@ GameConfig.ACT3 = {
 		{ Id = "FirstIncident", Act = 3, Kind = "Flag", Flag = "IncidentHandled", At = 1, Title = "FIRST INCIDENT HANDLED", Body = "The hackers will be back. You'll be ready." },
 		{ Id = "FirstConference", Act = 3, Kind = "Flag", Flag = "ConferenceGiven", At = 1, Title = "FIRST KEYNOTE", Body = "The crowd went wild. Reputation up." },
 		{ Id = "FirstKeyHire", Act = 3, Kind = "Hires", At = 1, Title = "KEY HIRE", Body = "A specialist joins the team." },
-		{ Id = "Halfway", Act = 3, Kind = "Earned", At = 0.5, Title = "HALFWAY THERE", Body = "$20,000 down. Keep shipping." },
+		{ Id = "Act3Halfway", Act = 3, Kind = "Earned", At = 0.5, Title = "HALFWAY THERE", Body = "$20,000 down. Keep shipping." },
 	} :: { Milestone },
 }
 

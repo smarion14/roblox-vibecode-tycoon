@@ -179,9 +179,13 @@ local function tickPlayer(player: Player)
 	if Story.NextBeat(story) ~= nil then
 		if existing then
 			states[player] = nil
-			if existing.Incidents.Active then
+			local incidents = existing.Incidents
+			if incidents.Active then
 				RemoteManager.FireClient(RemoteNames.IncidentState, player, nil)
 				setLights(player, nil)
+			end
+			if incidents.Active or next(incidents.Locks) ~= nil or incidents.DrainUntil > now() or incidents.EliteWaves > 0 then
+				notice(player, "The team handled it while you were busy.")
 			end
 		end
 		return

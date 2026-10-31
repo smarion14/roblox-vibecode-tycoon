@@ -27,7 +27,8 @@ local cardBody: Frame
 local toastToken = 0
 local bannerLayer: Frame
 local milestoneBody: TextLabel
-local milestoneQueue = 0
+local milestoneQueue: { { Title: string, Body: string } } = {}
+local milestoneWorker = false
 
 local function showText(message: any)
 	if type(message) ~= "string" then
@@ -46,24 +47,34 @@ local function showText(message: any)
 	end)
 end
 
--- A milestone gets a banner slam and its line floating up underneath. Several at once play one after another.
+-- A milestone gets a banner slam and its line floating up underneath. Several at once play one after another, and
+-- any that arrive with a cutscene (e.g. the deploy that ends an act) wait until it ends, since this gui is hidden then.
 local function showMilestone(payload: any)
 	if type(payload) ~= "table" or type(payload.Title) ~= "string" or type(payload.Body) ~= "string" then
 		return
 	end
-	milestoneQueue += 1
-	task.delay((milestoneQueue - 1) * 2.6, function()
-		milestoneQueue -= 1
-		Juice.Banner(bannerLayer, payload.Title, Theme.MOOD, 40)
-		Sfx.Play("Banner")
-		milestoneBody.Text = payload.Body
-		milestoneBody.Visible = true
-		Juice.PopIn(milestoneBody)
-		task.delay(2.4, function()
-			if milestoneBody.Text == payload.Body then
-				milestoneBody.Visible = false
+	table.insert(milestoneQueue, { Title = payload.Title, Body = payload.Body })
+	if milestoneWorker then
+		return
+	end
+	milestoneWorker = true
+	task.spawn(function()
+		task.wait(0.5) -- a cutscene sent with the same deploy gets to start first
+		while #milestoneQueue > 0 do
+			while CutsceneController.IsPlaying() do
+				task.wait(0.25)
 			end
-		end)
+			local milestone = table.remove(milestoneQueue, 1) :: { Title: string, Body: string }
+			Juice.Banner(bannerLayer, milestone.Title, Theme.MOOD, 40)
+			Sfx.Play("Banner")
+			milestoneBody.Text = milestone.Body
+			milestoneBody.Visible = true
+			Juice.PopIn(milestoneBody)
+			task.wait(2.4)
+			milestoneBody.Visible = false
+			task.wait(0.2)
+		end
+		milestoneWorker = false
 	end)
 end
 

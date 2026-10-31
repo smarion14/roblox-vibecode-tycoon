@@ -443,6 +443,7 @@ local function prop(scene: Scene, step: Cutscenes.Step)
 			headline.TextSize = TICKER_TEXT_SIZE
 			headline.TextColor3 = Theme.MOOD
 			headline.Text = step.Text or ""
+			headline.ZIndex = strip.ZIndex + 1 -- above the opaque strip under Global or Sibling ZIndex
 			headline.Parent = strip
 			strip.Parent = surface
 			table.insert(scene.Restores, function()

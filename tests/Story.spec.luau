@@ -157,4 +157,22 @@ tests["client milestones match when act 2 clients unlock"] = function()
 	assert(next(unlocks) == nil, "an act 2 client unlock has no milestone")
 end
 
+tests["milestone ids are unique across acts (each records Milestone_<Id>)"] = function()
+	local seen: { [string]: boolean } = {}
+	for _, defs in { GameConfig.ACT2.Milestones, GameConfig.ACT3.Milestones } do
+		for _, def in defs do
+			assert(not seen[def.Id], `duplicate milestone id {def.Id}`)
+			seen[def.Id] = true
+		end
+	end
+end
+
+tests["act 3 halfway fires for a player who saw act 2's halfway"] = function()
+	local flags = { Milestone_Halfway = true }
+	local reached = Story.NewMilestones(GameConfig.ACT3.Milestones :: any, {
+		Act = 3, ActDeploys = 3, Valuation = 5, ActGoal = 5, Hires = 0, Act3Earned = 20000, Act3Goal = GameConfig.ACT3.Goal, Flags = flags,
+	}, GameConfig.ACT2.ValuationStep)
+	assert(table.find(reached, "Act3Halfway"), "act 3 halfway missing")
+end
+
 return tests
