@@ -248,6 +248,7 @@ GameConfig.DECOR_ZONE = {
 	Blocked = {
 		{ X = 0, Z = 0, W = 30, D = 9 }, -- stations and employee desks (z −30..−12)
 		{ X = 23, Z = 9, W = 7, D = 1 }, -- meeting room's front edge (x 16..30, z −12..−10)
+		{ X = 20, Z = 9, W = 3, D = 1 }, -- foot of the campus stairs (x 10..16, z −12..−10), kept clear in every act
 		{ X = 13, Z = 28, W = 4, D = 2 }, -- spawn spot inside the door
 		{ X = 2, Z = 28, W = 2, D = 2 }, -- rename poster
 	},

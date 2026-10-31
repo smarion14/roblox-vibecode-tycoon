@@ -15,6 +15,9 @@ local COLOR_RACK = Color3.fromRGB(22, 22, 28)
 local COLOR_SERVER = Color3.fromRGB(46, 46, 56)
 local COLOR_COUCH = Color3.fromRGB(86, 70, 110)
 local COLOR_ACCENT_DARK = Color3.fromRGB(40, 30, 60)
+local COLOR_GLASS = Color3.fromRGB(150, 200, 230)
+
+export type Opening = { X: number, Width: number, Bottom: number, Top: number, Glass: boolean }
 
 local function part(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, material: Enum.Material): Part
 	local newPart = Instance.new("Part")
@@ -235,8 +238,49 @@ local function marker(parent: Instance, name: string, cframe: CFrame)
 	CollectionService:AddTag(point, "CutsceneMarker")
 end
 
+-- A wall along its local X axis (centred on `cframe` at floor level), split into solid panels around its openings.
+-- Windows get a glass pane; a doorway stays open.
+local function wallWithOpenings(parent: Instance, name: string, length: number, height: number, cframe: CFrame, openings: { Opening })
+	local cursor = -length / 2
+	local function panel(fromX: number, toX: number, bottom: number, top: number)
+		if toX - fromX > 0.01 and top - bottom > 0.01 then
+			part(parent, name, Vector3.new(toX - fromX, top - bottom, 1), cframe * CFrame.new((fromX + toX) / 2, (bottom + top) / 2, 0), COLOR_WALL, Enum.Material.Plaster)
+		end
+	end
+	for _, opening in openings do
+		local left, right = opening.X - opening.Width / 2, opening.X + opening.Width / 2
+		panel(cursor, left, 0, height)
+		panel(left, right, 0, opening.Bottom)
+		panel(left, right, opening.Top, height)
+		if opening.Glass then
+			local pane = part(parent, name .. "Window", Vector3.new(opening.Width, opening.Top - opening.Bottom, 0.2), cframe * CFrame.new(opening.X, (opening.Bottom + opening.Top) / 2, 0), COLOR_GLASS, Enum.Material.Glass)
+			pane.Transparency = 0.6
+			part(parent, name .. "Sill", Vector3.new(opening.Width + 0.4, 0.3, 1.4), cframe * CFrame.new(opening.X, opening.Bottom, 0), COLOR_BEZEL, Enum.Material.Metal)
+		end
+		cursor = right
+	end
+	panel(cursor, length / 2, 0, height)
+end
+
+-- A soft always-on ceiling panel, tagged Ceiling so decorate mode lifts it with the roof.
+local function ceilingLight(parent: Instance, cframe: CFrame)
+	local panelLight = part(parent, "CeilingLight", Vector3.new(8, 0.2, 3), cframe, Color3.fromRGB(255, 240, 220), Enum.Material.Neon)
+	panelLight.CanCollide = false
+	CollectionService:AddTag(panelLight, "Ceiling")
+	local glowDown = Instance.new("SurfaceLight")
+	glowDown.Face = Enum.NormalId.Bottom
+	glowDown.Range = 22
+	glowDown.Angle = 120
+	glowDown.Brightness = 1.2
+	glowDown.Color = Color3.fromRGB(255, 236, 214)
+	glowDown.Shadows = false
+	glowDown.Parent = panelLight
+end
+
 return {
 	part = part,
+	wallWithOpenings = wallWithOpenings,
+	ceilingLight = ceilingLight,
 	screenLabel = screenLabel,
 	interactable = interactable,
 	nightLight = nightLight,
@@ -262,4 +306,5 @@ return {
 	COLOR_SERVER = COLOR_SERVER,
 	COLOR_COUCH = COLOR_COUCH,
 	COLOR_ACCENT_DARK = COLOR_ACCENT_DARK,
+	COLOR_GLASS = COLOR_GLASS,
 }

@@ -119,8 +119,9 @@ local function buildAiCabinet(contents: Instance, base: CFrame): Part
 end
 
 -- An empty desk for a hire: tagged EmployeeDesk with its Role, a disabled seat named EmployeeSeat, and a
--- "NOW HIRING" sticky note that EmployeeService hides once that role is hired.
-local function buildEmployeeDesk(contents: Instance, base: CFrame, role: string)
+-- "NOW HIRING" sticky note that EmployeeService hides once that role is hired. `title` labels the monitor for roles
+-- that aren't stations (the campus key hires).
+function OfficeLayout.BuildEmployeeDesk(contents: Instance, base: CFrame, role: string, title: string?)
 	local top = part(contents, "EmployeeDesk", Vector3.new(4.4, 0.25, 2.4), base * CFrame.new(0, 3, 0), COLOR_DESK, Enum.Material.Wood)
 	top:SetAttribute("Role", role)
 	CollectionService:AddTag(top, "EmployeeDesk")
@@ -128,7 +129,7 @@ local function buildEmployeeDesk(contents: Instance, base: CFrame, role: string)
 		part(contents, "EmployeeDeskLeg", Vector3.new(0.25, 3, 2), base * CFrame.new(x, 1.5, 0), COLOR_BEZEL, Enum.Material.Metal)
 	end
 	local surface = base * CFrame.new(0, 3.125, 0)
-	local screen = monitor(contents, "EmployeeMonitor", Vector2.new(2.2, 1.3), surface * CFrame.new(0, 1.1, -0.5), GameConfig.STATION_NAMES[role], COLOR_CYAN)
+	local screen = monitor(contents, "EmployeeMonitor", Vector2.new(2.2, 1.3), surface * CFrame.new(0, 1.1, -0.5), title or GameConfig.STATION_NAMES[role], COLOR_CYAN)
 	-- Every desk's screen shares one name; the client finds its own through this link.
 	local link = Instance.new("ObjectValue")
 	link.Name = "Screen"
@@ -157,10 +158,12 @@ local function buildEmployeeDesk(contents: Instance, base: CFrame, role: string)
 	paper.Parent = note
 end
 
--- Meeting room in the back-right corner (x 16 to the right wall, z -10 to the back wall): glass partitions with a
--- doorway facing the floor, a table, and the deploy terminal as a wall screen.
-local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number): Part
-	local left, front = 16, -10
+-- The back-right room (x 16 to the right wall, z -10 to the back wall): glass partitions with a doorway facing the
+-- floor, carpet, and the deploy terminal as a wall screen. Act 2 furnishes it as the meeting room, Act 3 as the stage.
+local BACK_ROOM_LEFT, BACK_ROOM_FRONT = 16, -10
+
+function OfficeLayout.BuildBackRoom(contents: Instance, origin: CFrame, half: number)
+	local left, front = BACK_ROOM_LEFT, BACK_ROOM_FRONT
 	local right, back = half - 0.5, -half + 0.5 -- inner faces of the right and back walls
 	local doorWidth = 4
 	local doorX = (left + right) / 2
@@ -175,8 +178,14 @@ local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number
 	glassWall(Vector3.new(leftSegment, 9, 0.2), origin * CFrame.new(left + leftSegment / 2, 4.5, front))
 	glassWall(Vector3.new(rightSegment, 9, 0.2), origin * CFrame.new(right - rightSegment / 2, 4.5, front))
 	part(contents, "MeetingCarpet", Vector3.new(right - left - 0.2, 0.05, front - back), origin * CFrame.new((left + right) / 2, 0.03, (front + back) / 2), COLOR_CARPET, Enum.Material.Fabric).CanCollide = false
+	local screen = monitor(contents, "DeployTerminal", Vector2.new(7, 3.4), origin * CFrame.new(half - 0.8, 6, (front + back) / 2) * CFrame.Angles(0, math.rad(-90), 0), "DEPLOY", COLOR_PINK)
+	interactable(screen, "DeployTerminal", "Ship it", "Deploy Terminal")
+end
 
-	local tableZ = (front + back) / 2
+-- Act 2's meeting room: the back room with a table, chairs and a pendant light.
+local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number)
+	OfficeLayout.BuildBackRoom(contents, origin, half)
+	local tableZ = (BACK_ROOM_FRONT + -half + 0.5) / 2
 	local tableBase = origin * CFrame.new(22.5, 0, tableZ)
 	part(contents, "MeetingTable", Vector3.new(4, 0.3, 7), tableBase * CFrame.new(0, 3, 0), COLOR_DESK, Enum.Material.Wood)
 	part(contents, "MeetingTableBase", Vector3.new(1, 2.85, 4), tableBase * CFrame.new(0, 1.43, 0), COLOR_BEZEL, Enum.Material.Metal)
@@ -185,12 +194,9 @@ local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number
 			part(contents, "MeetingChair", Vector3.new(1.6, 1.8, 1.6), tableBase * CFrame.new(x, 0.9, z), Color3.fromRGB(40, 30, 60), Enum.Material.Fabric)
 		end
 	end
-
-	local screen = monitor(contents, "DeployTerminal", Vector2.new(7, 3.4), origin * CFrame.new(half - 0.8, 6, tableZ) * CFrame.Angles(0, math.rad(-90), 0), "DEPLOY", COLOR_PINK)
 	local light = part(contents, "MeetingLight", Vector3.new(5, 0.3, 1), tableBase * CFrame.new(0, 11, 0), COLOR_AMBER, Enum.Material.Neon)
 	light.CanCollide = false
 	nightLight(light, COLOR_AMBER, 16)
-	return screen
 end
 
 -- Logo wall, plants, the work-zone carpet and pendant lights. The coffee machine is a buyable decor perk now.
@@ -266,7 +272,9 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	look("PlayerCenter", at(0, 0, 6), at(0, 0, -10))
 end
 
-function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
+-- Everything Act 2 and the campus ground floor share: stations, employee desks, the rename poster, decor and the
+-- decorate-zone outline.
+function OfficeLayout.BuildWorkFloor(contents: Instance, origin: CFrame, half: number)
 	local back = origin * CFrame.new(0, 0, -half + 3)
 	local stationBuilders: { [string]: (Instance, CFrame) -> Part } = {
 		FrontendUnits = buildFrontendStation,
@@ -279,12 +287,8 @@ function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
 		local screen = stationBuilders[component](contents, back * CFrame.new(x, 0, 0))
 		screen:SetAttribute("Component", component)
 		interactable(screen, "Station", "Build", GameConfig.STATION_NAMES[component])
-		buildEmployeeDesk(contents, origin * CFrame.new(x, 0, DESK_Z), component)
+		OfficeLayout.BuildEmployeeDesk(contents, origin * CFrame.new(x, 0, DESK_Z), component)
 	end
-
-	local deploy = buildMeetingRoom(contents, origin, half)
-	interactable(deploy, "DeployTerminal", "Ship it", "Deploy Terminal")
-
 
 	-- The startup's poster by the door; interacting renames the startup.
 	local sign = part(contents, "StartupSign", Vector3.new(4, 3, 0.3), origin * CFrame.new(-24, 4.5, 28) * CFrame.Angles(0, math.pi, 0), COLOR_SCREEN, Enum.Material.SmoothPlastic)
@@ -297,6 +301,11 @@ function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
 
 	buildDecor(contents, origin, half)
 	buildDecorZoneOutline(contents, origin)
+end
+
+function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
+	OfficeLayout.BuildWorkFloor(contents, origin, half)
+	buildMeetingRoom(contents, origin, half)
 	buildMarkers(contents, origin)
 end
 

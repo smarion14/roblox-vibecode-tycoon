@@ -156,6 +156,24 @@ function PlotService.OnPromptTriggered(tag: string, handler: (player: Player, pa
 	CollectionService:GetInstanceAddedSignal(tag):Connect(bind)
 end
 
+-- Campus elevator: the pads are stacked, so the ride keeps x/z and moves the character to the other floor's
+-- unit-local height (the pad's TargetY). Only for a free, standing, living character.
+local function onElevator(player: Player, pad: BasePart)
+	local targetY = pad:GetAttribute("TargetY")
+	local unit = PlotService.GetUnitModel(player)
+	local origin = if unit then unit:GetAttribute("OriginCFrame") else nil
+	local character = player.Character
+	local humanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
+	if type(targetY) ~= "number" or typeof(origin) ~= "CFrame" or not character or not humanoid then
+		return
+	end
+	if humanoid.Health <= 0 or humanoid.Sit or StartupDataModule.GetActivity(player) ~= "Idle" then
+		return
+	end
+	local facing = character:GetPivot().Rotation
+	character:PivotTo(CFrame.new(pad.Position.X, origin.Position.Y + targetY + SPAWN_HEIGHT, pad.Position.Z) * facing)
+end
+
 function PlotService.Init()
 	ensureWorld()
 end
@@ -164,6 +182,7 @@ function PlotService.Start()
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
 	StartupDataModule.OnPlayerLoaded(onPlayerLoaded)
+	PlotService.OnPromptTriggered("Elevator", onElevator)
 	for _, player in Players:GetPlayers() do
 		task.spawn(onPlayerAdded, player)
 	end

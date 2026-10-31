@@ -12,6 +12,7 @@ local World = ServerScriptService:WaitForChild("World")
 local Props = require(World:WaitForChild("Props"))
 local HomelabLayout = require(World:WaitForChild("HomelabLayout"))
 local OfficeLayout = require(World:WaitForChild("OfficeLayout"))
+local CampusLayout = require(World:WaitForChild("CampusLayout"))
 
 local UNIT_SIZE = 64
 local UNIT_GAP = 8
@@ -40,7 +41,23 @@ function WorldBuilder.BuildContents(unit: Model, act: number)
 	local contents = unit:FindFirstChild("Contents") :: Folder
 	contents:ClearAllChildren()
 	local origin = unit:GetAttribute("OriginCFrame") :: CFrame
-	if act >= 2 then
+	-- The campus brings its own upper floor slab and roof, so the shell's roof and ceiling lights step aside.
+	local campus = act >= 3
+	for _, child in unit:GetChildren() do
+		if child:IsA("BasePart") and CollectionService:HasTag(child, "Ceiling") then
+			child.Transparency = if campus then 1 else 0
+			if child.Name == "Ceiling" then
+				child.CanCollide = not campus -- the light panels never collide
+			end
+			local glowDown = child:FindFirstChildOfClass("SurfaceLight")
+			if glowDown then
+				glowDown.Enabled = not campus
+			end
+		end
+	end
+	if campus then
+		CampusLayout.Build(contents, origin, UNIT_SIZE / 2)
+	elseif act >= 2 then
 		OfficeLayout.Build(contents, origin, UNIT_SIZE / 2)
 	else
 		HomelabLayout.Build(contents, origin, UNIT_SIZE / 2)
@@ -60,47 +77,20 @@ function WorldBuilder.SetSignText(unit: Model, text: string)
 	end
 end
 
-export type Opening = { X: number, Width: number, Bottom: number, Top: number, Glass: boolean }
-
-local COLOR_GLASS = Color3.fromRGB(150, 200, 230)
 local COLOR_CEILING = Color3.fromRGB(46, 40, 60)
 local DOOR_WIDTH = 6
 local DOOR_HEIGHT = 9
 -- Window bands shared by every plot: high on the side walls (clear of shelves and wall screens), wide storefront
 -- windows either side of the front door.
-local SIDE_WINDOWS: { Opening } = {
+local SIDE_WINDOWS: { Props.Opening } = {
 	{ X = -22, Width = 8, Bottom = 4.5, Top = 11, Glass = true },
 	{ X = 20, Width = 8, Bottom = 4.5, Top = 11, Glass = true },
 }
-local FRONT_OPENINGS: { Opening } = {
+local FRONT_OPENINGS: { Props.Opening } = {
 	{ X = -16, Width = 12, Bottom = 3.5, Top = 10.5, Glass = true },
 	{ X = 0, Width = DOOR_WIDTH, Bottom = 0, Top = DOOR_HEIGHT, Glass = false },
 	{ X = 16, Width = 12, Bottom = 3.5, Top = 10.5, Glass = true },
 }
-
--- A wall along its local X axis (centred on `cframe` at floor level), split into solid panels around its openings.
--- Windows get a glass pane; the doorway stays open for the sliding door.
-local function wallWithOpenings(unit: Model, name: string, length: number, cframe: CFrame, openings: { Opening })
-	local cursor = -length / 2
-	local function panel(fromX: number, toX: number, bottom: number, top: number)
-		if toX - fromX > 0.01 and top - bottom > 0.01 then
-			part(unit, name, Vector3.new(toX - fromX, top - bottom, 1), cframe * CFrame.new((fromX + toX) / 2, (bottom + top) / 2, 0), COLOR_WALL, Enum.Material.Plaster)
-		end
-	end
-	for _, opening in openings do
-		local left, right = opening.X - opening.Width / 2, opening.X + opening.Width / 2
-		panel(cursor, left, 0, WALL_HEIGHT)
-		panel(left, right, 0, opening.Bottom)
-		panel(left, right, opening.Top, WALL_HEIGHT)
-		if opening.Glass then
-			local pane = part(unit, name .. "Window", Vector3.new(opening.Width, opening.Top - opening.Bottom, 0.2), cframe * CFrame.new(opening.X, (opening.Bottom + opening.Top) / 2, 0), COLOR_GLASS, Enum.Material.Glass)
-			pane.Transparency = 0.6
-			part(unit, name .. "Sill", Vector3.new(opening.Width + 0.4, 0.3, 1.4), cframe * CFrame.new(opening.X, opening.Bottom, 0), Props.COLOR_BEZEL, Enum.Material.Metal)
-		end
-		cursor = right
-	end
-	panel(cursor, length / 2, 0, WALL_HEIGHT)
-end
 
 local function buildUnit(floor: Folder, index: number, origin: CFrame): Model
 	local unit = Instance.new("Model")
@@ -113,12 +103,12 @@ local function buildUnit(floor: Folder, index: number, origin: CFrame): Model
 	part(unit, "Floor", Vector3.new(UNIT_SIZE, 1, UNIT_SIZE), origin * CFrame.new(0, -0.5, 0), COLOR_FLOOR, Enum.Material.WoodPlanks)
 	part(unit, "BackWall", Vector3.new(UNIT_SIZE, WALL_HEIGHT, 1), origin * CFrame.new(0, WALL_HEIGHT / 2, -half), COLOR_WALL, Enum.Material.Plaster)
 	-- Side walls run along local Z; rotating the wall frame 90° lets one builder handle every wall.
-	wallWithOpenings(unit, "LeftWall", UNIT_SIZE, origin * CFrame.new(-half, 0, 0) * CFrame.Angles(0, math.rad(90), 0), SIDE_WINDOWS)
-	wallWithOpenings(unit, "RightWall", UNIT_SIZE, origin * CFrame.new(half, 0, 0) * CFrame.Angles(0, math.rad(-90), 0), SIDE_WINDOWS)
-	wallWithOpenings(unit, "FrontWall", UNIT_SIZE, origin * CFrame.new(0, 0, half), FRONT_OPENINGS)
+	Props.wallWithOpenings(unit, "LeftWall", UNIT_SIZE, WALL_HEIGHT, origin * CFrame.new(-half, 0, 0) * CFrame.Angles(0, math.rad(90), 0), SIDE_WINDOWS)
+	Props.wallWithOpenings(unit, "RightWall", UNIT_SIZE, WALL_HEIGHT, origin * CFrame.new(half, 0, 0) * CFrame.Angles(0, math.rad(-90), 0), SIDE_WINDOWS)
+	Props.wallWithOpenings(unit, "FrontWall", UNIT_SIZE, WALL_HEIGHT, origin * CFrame.new(0, 0, half), FRONT_OPENINGS)
 
 	-- Sliding front door; DoorController opens it on each client when anyone (or a cutscene actor) walks up.
-	local door = part(unit, "FrontDoor", Vector3.new(DOOR_WIDTH, DOOR_HEIGHT, 0.4), origin * CFrame.new(0, DOOR_HEIGHT / 2, half), COLOR_GLASS, Enum.Material.Glass)
+	local door = part(unit, "FrontDoor", Vector3.new(DOOR_WIDTH, DOOR_HEIGHT, 0.4), origin * CFrame.new(0, DOOR_HEIGHT / 2, half), Props.COLOR_GLASS, Enum.Material.Glass)
 	door.Transparency = 0.35
 	door:SetAttribute("SlideX", DOOR_WIDTH)
 	CollectionService:AddTag(door, "UnitDoor")
@@ -130,17 +120,7 @@ local function buildUnit(floor: Folder, index: number, origin: CFrame): Model
 	CollectionService:AddTag(ceiling, "Ceiling")
 	for _, x in { -16, 16 } do
 		for _, z in { -16, 12 } do
-			local panelLight = part(unit, "CeilingLight", Vector3.new(8, 0.2, 3), origin * CFrame.new(x, WALL_HEIGHT - 0.1, z), Color3.fromRGB(255, 240, 220), Enum.Material.Neon)
-			panelLight.CanCollide = false
-			CollectionService:AddTag(panelLight, "Ceiling")
-			local glowDown = Instance.new("SurfaceLight")
-			glowDown.Face = Enum.NormalId.Bottom
-			glowDown.Range = 22
-			glowDown.Angle = 120
-			glowDown.Brightness = 1.2
-			glowDown.Color = Color3.fromRGB(255, 236, 214)
-			glowDown.Shadows = false
-			glowDown.Parent = panelLight
+			Props.ceilingLight(unit, origin * CFrame.new(x, WALL_HEIGHT - 0.1, z))
 		end
 	end
 	local trim = part(unit, "NeonTrim", Vector3.new(UNIT_SIZE, 0.4, 0.4), origin * CFrame.new(0, WALL_HEIGHT - 0.5, -half + 0.8), COLOR_PINK, Enum.Material.Neon)
