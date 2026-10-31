@@ -321,6 +321,27 @@ GameConfig.SQUAD = {
 	BulletSpeed = 0.35,
 }
 
+-- Act 3 bullet hell (BulletHell.luau). Field x across, y down, 0-1; speeds are field widths per second. The ship
+-- flies in y ∈ [ShipMinY, ShipMaxY]. Duration = WaveCount × WaveSeconds + BossSeconds, the fight without elite
+-- waves; each ignored-vulnerability half-wave adds EliteWaveSeconds / 2 before the boss.
+GameConfig.BULLET_HELL = {
+	ShipSpeed = 1.6,
+	ShipSlack = 0.12,
+	ShipMinY = 0.35,
+	ShipMaxY = 0.95,
+	HitRadius = 0.012,
+	GrazeRadius = 0.05,
+	Lives = 3,
+	InvulnSeconds = 1.5,
+	LatencyGrace = 0.25,
+	Duration = 80,
+	WaveCount = 2,
+	WaveSeconds = 20,
+	BossSeconds = 40,
+	BulletSpeed = 0.32,
+	EliteWaveSeconds = 10,
+}
+
 -- Published cutscene animation ids (see docs/animations-publish-checklist.md). 0 = not published yet, and
 -- Actors falls back to a built-in animation or none.
 GameConfig.ANIMATIONS = {
