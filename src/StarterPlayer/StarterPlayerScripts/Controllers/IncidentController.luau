@@ -65,6 +65,9 @@ local TRIAGE_CHOICES: { Choice } = {
 local GRADE_COLORS: { [string]: Color3 } = { S = Theme.MOOD, A = Theme.TYPED, B = Theme.ACCENT, C = Theme.MUTED }
 local GRADE_STINGERS: { [string]: Sfx.SoundName } = { S = "GradeS", A = "GradeA", B = "GradeB", C = "GradeC" }
 local RESULT_SECONDS = 6
+local RESULT_WAIT_SECONDS = 5 -- a round screen still waiting this long past its end gives up and closes
+-- shortcut: the response panel is scaled from a fixed design height (tallest screen: Firewall); measure if screens grow.
+local PANEL_DESIGN_HEIGHT = 420
 
 local IncidentController = {}
 
@@ -90,12 +93,16 @@ local panel: Frame
 local titleLabel: TextLabel
 local hintLabel: TextLabel
 local body: Frame
+local fxLayer: Frame
+local panelFit: UIScale
 local timerBack: Frame
 local timerFill: Frame
 local timerTween: Tween? = nil
 local cleanup: { RBXScriptConnection } = {}
 local roundOpen = false
+local screenKind: "Round" | "Result" | "" = ""
 local roundToken = 0
+local close: () -> () -- defined with the response screen; the alert closes a stuck round screen
 
 local function usingGamepad(): boolean
 	return UserInputService:GetLastInputType().Name:sub(1, 7) == "Gamepad"
@@ -165,6 +172,9 @@ local function onIncidentState(payload: any)
 		Juice.SlideIn(alertBanner, UDim2.fromOffset(0, -50))
 		playAlarm()
 	elseif not current and previous then
+		if screenKind == "Round" then
+			close() -- the incident ended without a result for this screen (e.g. the server dropped the round)
+		end
 		Juice.SlideOut(alertBanner, UDim2.fromOffset(0, -50))
 		task.delay(0.25, refreshAlertVisibility)
 	else
@@ -290,9 +300,14 @@ local function runTimer(seconds: number)
 	timerTween = tween
 end
 
+local function refit()
+	panelFit.Scale = math.min(1, gui.AbsoluteSize.Y / PANEL_DESIGN_HEIGHT)
+end
+
 -- bodyHeight nil: the body sizes to a vertical list of its rows.
-local function open(title: string, hint: string, bodyHeight: number?): number
+local function open(kind: "Round" | "Result", title: string, hint: string, bodyHeight: number?): number
 	clearBody()
+	screenKind = kind
 	roundToken += 1
 	titleLabel.Text = title
 	hintLabel.Text = hint
@@ -308,16 +323,27 @@ local function open(title: string, hint: string, bodyHeight: number?): number
 	roundOpen = true
 	refreshAlertVisibility()
 	Juice.OpenWindow(gui, panel)
+	refit()
 	Sfx.Play("CardOpen")
 	return roundToken
 end
 
-local function close()
+function close()
 	clearBody()
+	screenKind = ""
 	roundToken += 1
 	roundOpen = false
 	refreshAlertVisibility()
 	Juice.CloseWindow(gui, panel)
+end
+
+-- The result normally replaces a round screen; if it never comes, don't leave the player stuck on "waiting".
+local function closeIfStuck(token: number, seconds: number)
+	task.delay(seconds, function()
+		if token == roundToken and screenKind == "Round" then
+			close()
+		end
+	end)
 end
 
 local function centered(parent: Instance, text: string, size: number, color: Color3): TextLabel
@@ -329,7 +355,7 @@ end
 -- Firewall -------------------------------------------------------------------
 
 local function startFirewall(data: any)
-	local token = open("FIREWALL", "Tap the red packets before they hit the core. Let green ones pass. Tap early!", FIREWALL_BODY)
+	local token = open("Round", "FIREWALL", "Tap the red packets before they hit the core. Let green ones pass. Tap early!", FIREWALL_BODY)
 	local travel = tonumber(data.TravelSeconds) or 3.5
 	local startedAt = os.clock()
 	local views: { PacketView } = {}
@@ -450,6 +476,7 @@ local function startFirewall(data: any)
 			tap(view)
 		end))
 	end
+	closeIfStuck(token, lastArrival + RESULT_WAIT_SECONDS)
 
 	local status = centered(body, "", 18, Theme.MOOD)
 	status.Font = Enum.Font.GothamBlack
@@ -515,7 +542,7 @@ end
 -- Triage and Clap back: one card at a time, one answer sheet sent at the end -------------------
 
 local function startSheet(title: string, hint: string, items: { SheetItem }, timeLimit: number)
-	local token = open(title, hint, nil)
+	local token = open("Round", title, hint, nil)
 	local answers: { [string]: any } = {}
 	local answered = 0
 	local current = 0
@@ -612,6 +639,7 @@ local function startSheet(title: string, hint: string, items: { SheetItem }, tim
 	table.insert(cleanup, submit.Activated:Connect(send))
 	show(1)
 	runTimer(timeLimit)
+	closeIfStuck(token, timeLimit + RESULT_WAIT_SECONDS)
 	-- Send what was answered just before the server's own cut-off; an empty sheet waits it out.
 	task.delay(timeLimit, function()
 		if token == roundToken and not sent then
@@ -665,7 +693,7 @@ local function showResult(gradeValue: any, deltaValue: any, repValue: any)
 	local newRep = tonumber(repValue) or 0
 	local color = GRADE_COLORS[grade]
 	local good = grade == "S" or grade == "A"
-	local token = open("INCIDENT CLEARED", if good then "Handled like a pro." else "Cleared, but no bonus this time.", nil)
+	local token = open("Result", "INCIDENT CLEARED", if good then "Handled like a pro." else "Cleared, but no bonus this time.", nil)
 
 	local gradeLabel = centered(body, grade, 64, color)
 	gradeLabel.Font = Enum.Font.GothamBlack
@@ -681,9 +709,9 @@ local function showResult(gradeValue: any, deltaValue: any, repValue: any)
 		Sfx.Play(GRADE_STINGERS[grade])
 	end)
 	if good then
-		Juice.Banner(gui :: any, `{grade} RANK!`, color, 46)
+		Juice.Banner(fxLayer, `{grade} RANK!`, color, 46)
 		for _ = 1, if grade == "S" then 16 else 8 do
-			Juice.Spark(gui :: any, UDim2.fromScale(0.5 + (math.random() - 0.5) * 0.3, 0.6), color)
+			Juice.Spark(fxLayer, UDim2.fromScale(0.5 + (math.random() - 0.5) * 0.3, 0.6), color)
 		end
 	end
 
@@ -697,11 +725,11 @@ local function showResult(gradeValue: any, deltaValue: any, repValue: any)
 		end
 	end)
 
-	local continue = Theme.Button(body, "Continue", 16)
-	continue.LayoutOrder = 3
-	table.insert(cleanup, continue.Activated:Connect(close))
+	local continueButton = Theme.Button(body, "Continue", 16)
+	continueButton.LayoutOrder = 3
+	table.insert(cleanup, continueButton.Activated:Connect(close))
 	if usingGamepad() then
-		GuiService.SelectedObject = continue
+		GuiService.SelectedObject = continueButton
 	end
 	runTimer(RESULT_SECONDS)
 	task.delay(RESULT_SECONDS, function()
@@ -770,7 +798,19 @@ local function buildScreen()
 	gui = Theme.Screen("Incident", 4)
 	gui.Enabled = false
 
-	panel = Theme.Panel(gui, UDim2.fromOffset(460, 0), UDim2.new(0.5, 0, 1, -24))
+	-- The panel sits in a full-screen holder whose UIScale shrinks it on short screens (phones); Juice owns the
+	-- panel's own UIScale for its open/close animation.
+	local holder = Instance.new("Frame")
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 1)
+	holder.Position = UDim2.fromScale(0.5, 1)
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.Parent = gui
+	panelFit = Instance.new("UIScale")
+	panelFit.Parent = holder
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit)
+
+	panel = Theme.Panel(holder, UDim2.fromOffset(460, 0), UDim2.new(0.5, 0, 1, -24))
 	panel.AnchorPoint = Vector2.new(0.5, 1)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	local stroke = panel:FindFirstChildOfClass("UIStroke")
@@ -803,6 +843,13 @@ local function buildScreen()
 	body.Size = UDim2.new(1, 0, 0, 200)
 	body.LayoutOrder = 3
 	body.Parent = panel
+
+	-- Banners and sparks fly over the whole screen, above the panel.
+	fxLayer = Instance.new("Frame")
+	fxLayer.BackgroundTransparency = 1
+	fxLayer.Size = UDim2.fromScale(1, 1)
+	fxLayer.ZIndex = 2
+	fxLayer.Parent = gui
 
 	gui.Parent = player:WaitForChild("PlayerGui")
 end
