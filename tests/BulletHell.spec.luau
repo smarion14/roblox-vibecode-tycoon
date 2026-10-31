@@ -70,6 +70,17 @@ local function quietBattle(seed: number, opts: BulletHell.Options?): BulletHell.
 	return b
 end
 
+-- Claims `count` kills on an enemy with the ship's gun, one every 0.3 s (its fire rate) from `from`; returns the
+-- time of the last claim.
+local function claimSteadily(b: BulletHell.Battle, enemyId: number, from: number, count: number): number
+	local t = from
+	for i = 1, count do
+		t = from + (i - 1) * 0.3
+		assert(BulletHell.Kill(b, enemyId, t, "Ship"), `claim {i} at {t}`)
+	end
+	return t
+end
+
 local tests = {}
 
 tests["rng is deterministic and in [0, 1)"] = function()
@@ -317,10 +328,9 @@ tests["swarm splits at half health"] = function()
 	assert(#children == 3, "three children, pre-generated")
 	local t = boss.SpawnAt + 5
 	assert(not BulletHell.Kill(b, children[1].Id, t, "Ship"), "a dormant child can't be hit")
-	for _ = 1, CFG.BossHp / 2 - 1 do
-		assert(BulletHell.Kill(b, boss.Id, t, "Ship"), "boss claim")
-	end
+	t = claimSteadily(b, boss.Id, t, CFG.BossHp / 2 - 1)
 	assert(b.SplitAt == nil and children[1].ActiveFrom == nil, "no split above half health")
+	t += 0.3
 	assert(BulletHell.Kill(b, boss.Id, t, "Ship"), "the half-health claim")
 	assert(b.SplitAt == t and boss.KilledAt == t, "the big boss splits")
 	for _, child in children do
@@ -328,11 +338,9 @@ tests["swarm splits at half health"] = function()
 	end
 	assert(b.BossDownAt == nil, "the children are still up")
 
-	local later = t + CFG.VisibleDelay + 0.1
+	local later = t + CFG.VisibleDelay
 	for _, child in children do
-		for _ = 1, CFG.SwarmChildHp do
-			assert(BulletHell.Kill(b, child.Id, later, "Ship"), "child claim")
-		end
+		later = claimSteadily(b, child.Id, later + 0.3, CFG.SwarmChildHp)
 	end
 	assert(b.BossDownAt == later, "last child down: boss down")
 	BulletHell.Tick(b, later + CFG.LatencyGrace + 0.1)
@@ -356,16 +364,46 @@ tests["claims need the weapon and a live enemy"] = function()
 	local c = quietBattle(5, options(false, false, 0, nil, { CFG.Weapons.Spread.Role }))
 	assert(BulletHell.Kill(c, 1, t, "Spread"), "a hired Spread wingman hits")
 
-	-- per-weapon budget: floor(elapsed / FireInterval) * 1 + ShotBudgetSlack
-	local d = quietBattle(5)
-	d.Options.Loadout.FireInterval = 10
+end
+
+tests["claims refill at the fire rate and can't be banked"] = function()
+	-- after 46 s unused, one instant allows only ShotBudgetSlack + PerShot claims per weapon
+	local d = quietBattle(5, options(false, false, 0, nil, { CFG.Weapons.Spread.Role }))
 	local boss = enemiesOf(d, "Boss")[1]
-	local at = boss.SpawnAt + 1
-	local budget = math.floor((at - START) / 10) + CFG.ShotBudgetSlack
-	for _ = 1, budget do
-		assert(BulletHell.Kill(d, boss.Id, at, "Ship"), "inside the budget")
+	boss.Hp = 10000
+	local at = boss.SpawnAt + 6
+	local function drain(weapon: BulletHell.Weapon, perShot: number)
+		for _ = 1, CFG.ShotBudgetSlack + perShot do
+			assert(BulletHell.Kill(d, boss.Id, at, weapon), "inside the bucket")
+		end
+		assert(not BulletHell.Kill(d, boss.Id, at, weapon), "the bucket is empty")
 	end
-	assert(not BulletHell.Kill(d, boss.Id, at, "Ship"), "past the budget")
+	drain("Ship", 1)
+	drain("Spread", CFG.Weapons.Spread.PerShot)
+	assert(not BulletHell.Kill(d, boss.Id, boss.SpawnAt + 3, "Ship"), "a clock going backwards refills nothing")
+
+	-- a steady stream at the fire rate keeps succeeding
+	local e = quietBattle(5)
+	local eBoss = enemiesOf(e, "Boss")[1]
+	eBoss.Hp = 10000
+	claimSteadily(e, eBoss.Id, eBoss.SpawnAt + 2, 100)
+end
+
+tests["a boss flying in can't be hit yet"] = function()
+	local b = quietBattle(5)
+	local boss = enemiesOf(b, "Boss")[1]
+	local _, y = BulletHell.EnemyPosition(boss, boss.SpawnAt + CFG.VisibleDelay)
+	assert(y < 0, "still above the field after VisibleDelay")
+	assert(not BulletHell.Kill(b, boss.Id, boss.SpawnAt + CFG.VisibleDelay, "Ship"), "off screen")
+	assert(BulletHell.Kill(b, boss.Id, boss.SpawnAt + 0.5, "Ship"), "centre on screen")
+end
+
+tests["wingmen toughen the boss"] = function()
+	local wingmen = { CFG.Weapons.Spread.Role, CFG.Weapons.Beam.Role }
+	local b = newBattle(5, options(false, false, 0, "Swarm", wingmen))
+	assert(enemiesOf(b, "Boss")[1].Hp == CFG.BossHp * 2, "two wingmen: x2 boss HP")
+	assert(enemiesOf(b, "Child")[1].Hp == CFG.SwarmChildHp * 2, "and x2 child HP")
+	assert(enemiesOf(newBattle(5), "Boss")[1].Hp == CFG.BossHp, "no wingmen: base HP")
 end
 
 tests["a dead enemy stops firing"] = function()
@@ -425,6 +463,9 @@ tests["elite wave lengthens the fight"] = function()
 	end
 	assert(eliteEnemies >= 10, "the elite wave is full of enemies")
 	assert(#c.Enemies == #a.Enemies + eliteEnemies, "and only adds enemies")
+
+	local capped = newBattle(9, options(false, false, 4))
+	assert(capped.EndsAt == c.EndsAt and #capped.Enemies == #c.Enemies, "EliteHalfWaves = 4 behaves like 2")
 end
 
 return tests

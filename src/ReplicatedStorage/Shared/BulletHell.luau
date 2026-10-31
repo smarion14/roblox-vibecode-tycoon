@@ -27,8 +27,8 @@
 --   dormant (ActiveFrom = nil, their bullets don't fly) until the split, which the server tells the client (SplitAt).
 -- Schedule decisions use only times and RNG draws, never sin/cos results, so client and server build the same list.
 --
--- Kills (Kill): Act 2's claim model. One claim takes one HP from a live, on-screen enemy; each weapon can claim at
--- most floor(elapsed / Interval) × PerShot + ShotBudgetSlack kills, and a wingman's weapon needs its role hired.
+-- Kills (Kill): one claim takes one HP from a live, on-screen enemy; each weapon spends a token from a capped bucket
+-- refilled at its fire rate (see Kill), and a wingman's weapon needs its role hired.
 -- Once every boss is down (BossDownAt), judging stops there and the battle ships.
 
 export type BossKind = "Hacker" | "Naysayer" | "Swarm"
@@ -105,7 +105,7 @@ export type Battle = {
 	Bullets: { Bullet }, -- sorted by FiredAt, Id = index
 	Enemies: { Enemy }, -- Id = index: popcorn in spawn order, then the boss, then its children
 	Killed: number,
-	WeaponShots: { [string]: number }, -- kills claimed per Weapon
+	Ammo: { [string]: { Tokens: number, At: number } }, -- per Weapon claim bucket, refilled up to At
 	SplitAt: number?, -- when the Swarm split and its children became active
 	BossDownAt: number?,
 	Lives: number,
@@ -170,6 +170,7 @@ local HACKER_SPEED = 0.85 -- × BulletSpeed
 local NAYSAYER_ROW_GAP = 1.4
 local NAYSAYER_SPACING = 0.022 -- under 2 × HitRadius: only the gap gets through
 local NAYSAYER_BUBBLES = 45 -- across x 0.01-0.978
+-- bubbles within NAYSAYER_GAP / 2 of the gap's x are left out: >= 0.198 between centres (9 spacings), >= 0.174 clear
 local NAYSAYER_GAP = 0.18
 local NAYSAYER_SPEED = 0.6 -- × BulletSpeed
 local SWARM_RING = 16
@@ -361,8 +362,14 @@ local function emitWave(phase: Phase, level: number, cfg: Config, rng: () -> num
 	end
 end
 
-local function emitBoss(phase: Phase, boss: BossKind, cfg: Config, rng: () -> number, addEnemy: AddEnemy, fire: Fire)
-	local enemy = addEnemy("Boss", phase.StartsAt, phase.EndsAt, BOSS_X, BOSS_Y, 0, cfg.BossHp)
+-- Boss and child HP grow with the wingmen (1 + 0.5 per wingman) so a full squad can't end the fight too soon.
+local function bossHp(hp: number, options: Options): number
+	return math.floor(hp * (1 + 0.5 * #options.Wingmen) + 0.5)
+end
+
+local function emitBoss(phase: Phase, options: Options, cfg: Config, rng: () -> number, addEnemy: AddEnemy, fire: Fire)
+	local boss = options.Boss
+	local enemy = addEnemy("Boss", phase.StartsAt, phase.EndsAt, BOSS_X, BOSS_Y, 0, bossHp(cfg.BossHp, options))
 	local firstShot = phase.StartsAt + BOSS_ENTRY
 	local speed = cfg.BulletSpeed
 	local shot = 0
@@ -399,7 +406,7 @@ local function emitBoss(phase: Phase, boss: BossKind, cfg: Config, rng: () -> nu
 	else
 		local children: { Enemy } = {}
 		for k = 1, 3 do
-			local child = addEnemy("Child", phase.StartsAt, phase.EndsAt, BOSS_X, BOSS_Y, (k - 1) * TAU / 3, cfg.SwarmChildHp)
+			local child = addEnemy("Child", phase.StartsAt, phase.EndsAt, BOSS_X, BOSS_Y, (k - 1) * TAU / 3, bossHp(cfg.SwarmChildHp, options))
 			child.ActiveFrom = nil -- dormant until the split
 			table.insert(children, child)
 		end
@@ -433,7 +440,7 @@ function BulletHell.New(start: number, seed: number, options: Options, cfg: Conf
 	for _ = 1, cfg.WaveCount do
 		addPhase("Wave", cfg.WaveSeconds)
 	end
-	local eliteSeconds = cfg.EliteWaveSeconds * math.max(options.EliteHalfWaves, 0) / 2
+	local eliteSeconds = cfg.EliteWaveSeconds * math.clamp(options.EliteHalfWaves, 0, 2) / 2 -- keeps battles <= 90 s
 	if eliteSeconds > 0 then
 		addPhase("Elite", eliteSeconds)
 	end
@@ -467,7 +474,7 @@ function BulletHell.New(start: number, seed: number, options: Options, cfg: Conf
 	end
 	for index, phase in phases do
 		if phase.Kind == "Boss" then
-			emitBoss(phase, options.Boss, cfg, rng, addEnemy, fire)
+			emitBoss(phase, options, cfg, rng, addEnemy, fire)
 		else
 			emitWave(phase, if phase.Kind == "Elite" then 3 else math.min(index, 2), cfg, rng, addEnemy, fire)
 		end
@@ -493,7 +500,7 @@ function BulletHell.New(start: number, seed: number, options: Options, cfg: Conf
 		Bullets = bullets,
 		Enemies = enemies,
 		Killed = 0,
-		WeaponShots = {},
+		Ammo = {},
 		SplitAt = nil,
 		BossDownAt = nil,
 		Lives = lives,
@@ -699,7 +706,9 @@ local function bossesDown(b: Battle): boolean
 end
 
 -- A shot hit an enemy (the client reports its id and the weapon, Ship by default). Valid only if the enemy is active,
--- alive and on screen, and that weapon can't have fired more shots than its rate allows. One claim takes one HP.
+-- alive and on screen (a boss's centre too), and that weapon has a token. One claim takes one HP.
+-- Each weapon has a token bucket: ShotBudgetSlack tokens at the start, refilled at PerShot / Interval per second up
+-- to ShotBudgetSlack + PerShot, so unused fire can't be banked for a burst on the boss.
 function BulletHell.Kill(b: Battle, enemyId: number, now: number, weapon: Weapon?): boolean
 	BulletHell.Tick(b, now)
 	local enemy = b.Enemies[enemyId]
@@ -711,21 +720,35 @@ function BulletHell.Kill(b: Battle, enemyId: number, now: number, weapon: Weapon
 	if not activeFrom or now < activeFrom + cfg.VisibleDelay or now > enemy.LeaveAt + cfg.LatencyGrace then
 		return false
 	end
+	if enemy.Kind ~= "Popcorn" then
+		local _, y = BulletHell.EnemyPosition(enemy, now)
+		if y < 0 then
+			return false -- still flying in above the field
+		end
+	end
 	local chosen: Weapon = weapon or "Ship"
 	local interval, perShot = weaponRate(b, chosen)
 	if not interval then
 		return false
 	end
-	local used = b.WeaponShots[chosen] or 0
-	if used >= math.floor((now - b.StartTime) / interval) * perShot + cfg.ShotBudgetSlack then
+	local ammo = b.Ammo[chosen]
+	if not ammo then
+		ammo = { Tokens = cfg.ShotBudgetSlack, At = b.StartTime }
+		b.Ammo[chosen] = ammo
+	end
+	if now > ammo.At then -- a clock going backwards refills nothing
+		ammo.Tokens = math.min(ammo.Tokens + (now - ammo.At) * perShot / interval, cfg.ShotBudgetSlack + perShot)
+		ammo.At = now
+	end
+	if ammo.Tokens < 1 then
 		return false
 	end
 
-	b.WeaponShots[chosen] = used + 1
+	ammo.Tokens -= 1
 	b.Combo += 1
 	b.MaxCombo = math.max(b.MaxCombo, b.Combo)
 	enemy.Hp -= 1
-	if enemy.Kind == "Boss" and b.Options.Boss == "Swarm" and enemy.Hp <= cfg.BossHp / 2 then
+	if enemy.Kind == "Boss" and b.Options.Boss == "Swarm" and enemy.Hp <= bossHp(cfg.BossHp, b.Options) / 2 then
 		enemy.Hp = 0 -- the Swarm splits: its dormant children spawn around where it is
 		b.SplitAt = now
 		for _, child in b.Enemies do
