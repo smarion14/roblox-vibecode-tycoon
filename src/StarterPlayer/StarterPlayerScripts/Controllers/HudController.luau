@@ -1,5 +1,5 @@
 --!strict
--- Always-on HUD: cash, valuation, rent goal, the active job's recipe progress, and notice toasts.
+-- Always-on HUD: cash, valuation, Act 3 reputation, rent goal, the active job's recipe progress, and notice toasts.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -7,6 +7,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
+local Reputation = require(Shared:WaitForChild("Reputation"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local UI = script.Parent.Parent:WaitForChild("UI")
 local ClientState = require(UI:WaitForChild("ClientState"))
@@ -19,6 +20,7 @@ local HudController = {}
 
 local cashLabel: TextLabel
 local valuationLabel: TextLabel
+local repLabel: TextLabel
 local rentFill: Frame
 local rentLabel: TextLabel
 local jobLabel: TextLabel
@@ -35,6 +37,13 @@ local function countUnits(grades: any): number
 		return 0
 	end
 	return (grades.S or 0) + (grades.A or 0) + (grades.B or 0) + (grades.C or 0)
+end
+
+-- 12400 -> "12,400"
+local function commas(amount: number): string
+	local text = tostring(math.floor(amount))
+	local formatted = text:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (formatted:gsub("^(-?),", "%1"))
 end
 
 local function onStateSync(view: any)
@@ -80,7 +89,31 @@ local function onStateSync(view: any)
 		end
 	end
 
-	if (tonumber(view.Act) or 1) >= 2 then
+	local act = tonumber(view.Act) or 1
+	repLabel.Visible = act >= 3
+	if act >= 3 then
+		local rep = tonumber(view.Reputation) or GameConfig.ACT3.StartReputation
+		local mult = Reputation.Multiplier(rep, GameConfig.ACT3.MinMultiplier, GameConfig.ACT3.MaxMultiplier)
+		local repText = string.format("REP %d · x%.2f", math.floor(rep + 0.5), mult)
+		if repLabel.Text ~= repText then
+			local first = repLabel.Text == ""
+			repLabel.Text = repText
+			if not first then
+				Juice.Pop(repLabel, 0.3)
+			end
+		end
+
+		-- Act 3: a running total of deploy payouts toward the goal; after the end it keeps counting.
+		local earned = tonumber(view.Act3Earned) or 0
+		local flags = view.StoryFlags
+		if type(flags) == "table" and flags.GameComplete then
+			rentLabel.Text = `LIFETIME EARNINGS  ${commas(earned)}`
+			rentFill.Size = UDim2.fromScale(1, 1)
+		else
+			rentLabel.Text = `GOAL  ${commas(earned)} / ${commas(GameConfig.ACT3.Goal)}`
+			rentFill.Size = UDim2.fromScale(math.clamp(earned / GameConfig.ACT3.Goal, 0, 1), 1)
+		end
+	elseif act >= 2 then
 		-- Act 2: the same row tracks the valuation goal from where the act started.
 		local valuation = tonumber(view.Valuation) or 1
 		local goal = tonumber(view.ActGoal) or 1
@@ -159,6 +192,8 @@ function HudController.Init()
 
 	cashLabel = Theme.Text(panel, "CASH  $0", 18, Theme.TYPED)
 	valuationLabel = Theme.Text(panel, "VALUATION  x1.00", 14, Theme.MUTED)
+	repLabel = Theme.Text(panel, "", 14, Theme.ACCENT)
+	repLabel.Visible = false
 	rentLabel = Theme.Text(panel, "RENT", 14, Theme.MOOD)
 
 	local rentBar = Instance.new("Frame")
