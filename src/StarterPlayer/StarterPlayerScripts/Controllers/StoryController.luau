@@ -10,6 +10,7 @@ local UI = script.Parent.Parent:WaitForChild("UI")
 local Juice = require(UI:WaitForChild("Juice"))
 local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
+local StoryText = require(Shared:WaitForChild("StoryText"))
 local CutsceneController = require(script.Parent:WaitForChild("CutsceneController"))
 local NameDialog = require(UI:WaitForChild("NameDialog"))
 
@@ -96,6 +97,31 @@ local function showMilestone(payload: any)
 	end)
 end
 
+-- A paged card: heading, body, then Next (or "Let's go" on the last page).
+local function showPages(pages: { { Title: string, Body: string } }, index: number)
+	local page = pages[index]
+	if not page then
+		card.Visible = false
+		return
+	end
+	for _, child in cardBody:GetChildren() do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+	Theme.Text(cardBody, `{index} / {#pages}`, 14, Theme.MUTED).LayoutOrder = 1
+	Theme.Text(cardBody, page.Title, 30, Theme.ACCENT).LayoutOrder = 2
+	Theme.Text(cardBody, page.Body, 22).LayoutOrder = 3
+	local nextButton = Theme.Button(cardBody, if index == #pages then "Let's go" else "Next", 16)
+	nextButton.LayoutOrder = 4
+	nextButton.Activated:Connect(function()
+		showPages(pages, index + 1)
+	end)
+	card.Visible = true
+	Sfx.Play(if index == 1 then "Banner" else "ChipTap")
+	Juice.PopIn(cardBody)
+end
+
 local function onBeat(kind: any, payload: any)
 	if kind == "Cutscene" then
 		task.spawn(CutsceneController.Play, payload)
@@ -103,6 +129,8 @@ local function onBeat(kind: any, payload: any)
 		showText(payload)
 	elseif kind == "Milestone" then
 		showMilestone(payload)
+	elseif kind == "Act2Tutorial" then
+		showPages(StoryText.ACT2_TUTORIAL, 1)
 	elseif kind == "Act2Complete" then
 		showCard({ "You hit your valuation goal." }, "Act 2 complete. To be continued.")
 	end

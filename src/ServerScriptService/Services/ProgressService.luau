@@ -70,9 +70,14 @@ local function onCutsceneDone(player: Player, id: any)
 		PlotService.RebuildUnit(player, 2)
 		sendNextBeat(player)
 	elseif id == "Act2Intro" then
+		local firstTime = not save.StoryFlags.Act2TutorialSeen
 		StartupDataModule.Update(player, function(current)
 			current.StoryFlags.Act2IntroSeen = true
+			current.StoryFlags.Act2TutorialSeen = true
 		end)
+		if firstTime then
+			beat(player, "Act2Tutorial", nil)
+		end
 	end
 end
 
