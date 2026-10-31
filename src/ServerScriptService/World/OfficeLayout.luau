@@ -274,7 +274,7 @@ local function buildMarkers(contents: Instance, origin: CFrame)
 	local deskRowX = (STATION_X[1] + STATION_X[#STATION_X]) / 2
 	look("CamDesks", at(deskRowX, 11, 0), at(deskRowX, 3, DESK_Z - 2))
 	look("CamSign", at(-24, 5, 22), at(-24, 4.5, 28))
-	look("PlayerDoor", at(0, 0, 31), at(0, 0, 0))
+	look("PlayerDoor", at(0, 0, 36), at(0, 0, 0))
 	look("PlayerCenter", at(0, 0, 6), at(0, 0, -10))
 end
 

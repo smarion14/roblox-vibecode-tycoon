@@ -120,7 +120,7 @@ local function act2Intro(copy: Copy): { Step }
 		{ Kind = "Shot", From = "CamOutside", Seconds = 0.1 },
 		{ Kind = "Fade", To = "Clear", Seconds = 0.8 },
 		{ Kind = "Shot", From = "CamOutside", To = "CamInside", Seconds = 2.6 },
-		{ Kind = "Actor", Actor = "Player", Marker = "PlayerCenter", Walk = true, Seconds = 3 },
+		{ Kind = "Actor", Actor = "Player", Marker = "PlayerCenter", Walk = true, Seconds = 3.6 },
 		{ Kind = "Shot", From = "CamDesks", Seconds = 1.6 },
 		{ Kind = "Prop", Prop = "PhoneBuzz", Action = "Buzz" },
 		{ Kind = "PhoneText", Speaker = "Brother", Text = copy.BrotherText },

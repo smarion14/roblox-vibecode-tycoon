@@ -2,6 +2,7 @@
 -- Decorate mode (Act 2+): a top-down camera over the office's decorate zone, a cell grid, a shop panel and a ghost
 -- preview that snaps to the grid. The client only previews with Decor.CanPlace; every buy, move and sell is a
 -- request that DecorService checks again and answers with DecorResult.
+local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
@@ -479,6 +480,8 @@ local function setAnchored(anchored: boolean)
 	end
 end
 
+local hiddenRoof: { BasePart } = {}
+
 local function exit()
 	if not active then
 		return
@@ -489,6 +492,10 @@ local function exit()
 	end
 	table.clear(connections)
 	clearGhost()
+	for _, roofPart in hiddenRoof do
+		roofPart.LocalTransparencyModifier = 0
+	end
+	table.clear(hiddenRoof)
 	if world then
 		world:Destroy()
 	end
@@ -634,6 +641,13 @@ local function enter()
 	pickedAt = 0
 
 	setAnchored(true)
+	-- Lift the roof (for this client only) so the top-down camera can see the room.
+	for _, roofPart in CollectionService:GetTagged("Ceiling") do
+		if roofPart:IsA("BasePart") and roofPart:IsDescendantOf(unit) then
+			roofPart.LocalTransparencyModifier = 1
+			table.insert(hiddenRoof, roofPart)
+		end
+	end
 	local camera = Workspace.CurrentCamera
 	camera.CameraType = Enum.CameraType.Scriptable
 	local center = origin
