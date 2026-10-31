@@ -13,6 +13,7 @@ local TypingJudge = require(Shared:WaitForChild("TypingJudge"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
+local IncidentService = require(script.Parent:WaitForChild("IncidentService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 
 type ActiveBurst = {
@@ -146,6 +147,9 @@ local function onStation(player: Player, part: BasePart)
 	end
 	local save = StartupDataModule.GetSnapshot(player)
 	if not save or StartupDataModule.GetActivity(player) ~= "Idle" then
+		return
+	end
+	if IncidentService.RefuseLocked(player, component) then
 		return
 	end
 	if not AssemblyService.GetActiveJob(player) then

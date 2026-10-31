@@ -230,7 +230,7 @@ GameConfig.KEY_HIRES = {
 	SecurityEngineer = { Name = "Security Engineer", Price = 3000, Counters = "Breach" },
 	QAManager = { Name = "QA Manager", Price = 3000, Counters = "Vulnerability" },
 	PRLead = { Name = "PR Lead", Price = 3500, Counters = "Naysayer" },
-}
+} :: { [string]: HireDef & { Counters: string } }
 
 -- Hired employees build parts on their own; seconds per part before perks, and the grades they produce.
 GameConfig.WORKFORCE = { BuildSeconds = 25, Grade = "B", BonusGrade = "A" }

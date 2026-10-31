@@ -26,6 +26,10 @@ local RemoteNames = {
 	DecorMove = "DecorMove",
 	DecorSell = "DecorSell",
 	DecorResult = "DecorResult",
+	IncidentState = "IncidentState",
+	IncidentStart = "IncidentStart",
+	IncidentAction = "IncidentAction",
+	IncidentResult = "IncidentResult",
 }
 
 return RemoteNames

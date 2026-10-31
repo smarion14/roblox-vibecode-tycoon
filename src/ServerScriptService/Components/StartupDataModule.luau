@@ -42,7 +42,14 @@ end
 local catalog: SaveSchema.SaveCatalog = {
 	Components = GameConfig.COMPONENTS,
 	GearIds = sortedKeys(GameConfig.GEAR),
-	HireIds = sortedKeys(GameConfig.HIRES),
+	-- Interns and Act 3 key hires share save.Hires; both must survive the load sanitizer.
+	HireIds = (function(): { string }
+		local ids = sortedKeys(GameConfig.HIRES)
+		for _, id in sortedKeys(GameConfig.KEY_HIRES) do
+			table.insert(ids, id)
+		end
+		return ids
+	end)(),
 	ClientIds = (function(): { string }
 		local ids: { string } = {}
 		for _, client in GameConfig.CLIENTS do

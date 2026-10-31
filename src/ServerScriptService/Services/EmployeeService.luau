@@ -1,6 +1,7 @@
 --!strict
 -- Act 2 employees: each hired role gets an NPC at its office desk, wearing one of the owner's friends' avatars
 -- (random colors when there are no friends to borrow). Act 1 never shows them; the homelab has no desks.
+-- Act 3 key hires sit at their upstairs room desks the same way; they never build parts.
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,13 +10,14 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
+local IncidentService = require(script.Parent:WaitForChild("IncidentService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 local Workforce = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Workforce"))
 local Decor = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Decor"))
 
 -- Roblox's default R15 sit, used until DeskType is published.
 local SIT_ANIMATION_ID = 2506281703
-local MAX_FRIENDS = 4
+local MAX_FRIENDS = 7 -- one per intern role, then one per key hire
 local TICK_SECONDS = 0.5
 
 local EmployeeService = {}
@@ -86,6 +88,29 @@ local function buildModel(description: HumanoidDescription): Model?
 	return if ok then model else nil
 end
 
+local function hireName(role: string): string
+	local intern = GameConfig.HIRES[role]
+	if intern then
+		return intern.Name
+	end
+	local keyHire = GameConfig.KEY_HIRES[role]
+	return if keyHire then keyHire.Name else role
+end
+
+-- Friend slot per role: interns 1-4 in component order, key hires 5-7.
+local function slotFor(role: string): number
+	local component = table.find(GameConfig.COMPONENTS, role)
+	if component then
+		return component
+	end
+	local keyIds: { string } = {}
+	for id in GameConfig.KEY_HIRES do
+		table.insert(keyIds, id)
+	end
+	table.sort(keyIds)
+	return #GameConfig.COMPONENTS + (table.find(keyIds, role) or 1)
+end
+
 local function spawnEmployee(player: Player, desk: BasePart, seat: Seat, role: string, slot: number)
 	-- A friend's outfit can fail to build (missing or moderated assets); fall back to a plain random look.
 	local model = buildModel(lookFor(player, slot)) or buildModel(randomLook())
@@ -111,7 +136,7 @@ local function spawnEmployee(player: Player, desk: BasePart, seat: Seat, role: s
 		label.TextStrokeTransparency = 0.3
 		label.Font = Enum.Font.Code
 		label.TextScaled = true
-		label.Text = GameConfig.HIRES[role].Name
+		label.Text = hireName(role)
 		label.Parent = tag
 	end
 	model:PivotTo(seat.CFrame * CFrame.new(0, 3, 0))
@@ -155,7 +180,7 @@ function EmployeeService.Refresh(player: Player)
 			end
 		elseif not existing and not desk:GetAttribute("Spawning") then
 			local seat = desk:FindFirstChild("EmployeeSeat")
-			local slot = table.find(GameConfig.COMPONENTS, role) or 1
+			local slot = slotFor(role)
 			if seat and seat:IsA("Seat") then
 				-- Spawning yields on web calls; the flag stops an overlapping refresh from adding a second NPC.
 				desk:SetAttribute("Spawning", true)
@@ -194,6 +219,12 @@ local function tickPlayer(player: Player, dt: number)
 		have[component] = grades.S + grades.A + grades.B + grades.C
 	end
 	local needs = if recipe then Workforce.Needs(GameConfig.COMPONENTS, recipe, have, save.Hires) else {}
+	-- A breach-locked station sends out no parts, from the player or from employees.
+	for index = #needs, 1, -1 do
+		if IncidentService.IsLocked(player, needs[index]) then
+			table.remove(needs, index)
+		end
+	end
 
 	local progress = progressOf[player] or {}
 	progressOf[player] = progress

@@ -1,6 +1,6 @@
 --!strict
--- Laptop shop: gear (changes the typing minigame) and hires (pre-fill C units, Act 2 only). Prices, ownership and
--- act checked here.
+-- Laptop shop: gear (changes the typing minigame), hires (from Act 2) and key hires (incident counters, from Act 3).
+-- Prices, ownership and act checked here.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -14,6 +14,7 @@ local PlotService = require(script.Parent:WaitForChild("PlotService"))
 local ProgressService = require(script.Parent:WaitForChild("ProgressService"))
 
 local NO_OFFICE_MESSAGE = "Hire people once you have an office."
+local NO_CAMPUS_MESSAGE = "Key hires join once you have a campus."
 
 type ShopItem = {
 	Id: string,
@@ -33,6 +34,11 @@ local function catalogFor(save: StartupDataModule.PlayerSave): { ShopItem }
 	-- Hires only appear once there's an office to put them in.
 	if save.Act >= 2 then
 		for id, def in GameConfig.HIRES do
+			table.insert(items, { Id = id, Kind = "Hire", Name = def.Name, Price = def.Price, Owned = save.Hires[id] == true })
+		end
+	end
+	if save.Act >= 3 then
+		for id, def in GameConfig.KEY_HIRES do
 			table.insert(items, { Id = id, Kind = "Hire", Name = def.Name, Price = def.Price, Owned = save.Hires[id] == true })
 		end
 	end
@@ -59,7 +65,8 @@ local function onPurchase(player: Player, itemId: any)
 	end
 
 	local gear = GameConfig.GEAR[itemId]
-	local hire = GameConfig.HIRES[itemId]
+	local keyHire = GameConfig.KEY_HIRES[itemId]
+	local hire = GameConfig.HIRES[itemId] or keyHire
 	local def = gear or hire
 	if not def then
 		return
@@ -67,6 +74,10 @@ local function onPurchase(player: Player, itemId: any)
 
 	if hire and save.Act < 2 then
 		RemoteManager.FireClient(RemoteNames.Notice, player, NO_OFFICE_MESSAGE)
+		return
+	end
+	if keyHire and save.Act < 3 then
+		RemoteManager.FireClient(RemoteNames.Notice, player, NO_CAMPUS_MESSAGE)
 		return
 	end
 
