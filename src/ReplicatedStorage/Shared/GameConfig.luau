@@ -208,6 +208,30 @@ GameConfig.ACT3 = {
 	} :: { Milestone },
 }
 
+-- Act 3 incidents: one at a time, every MinGap..MaxGap s (FreePlay* after the story). The player has RespondSeconds
+-- to handle one. Ignored: a breach locks a station for LockSeconds, a vulnerability adds elite waves, a naysayer drains
+-- reputation (1 per DrainEvery s for DrainSeconds). Good handling earns GoodBonus; ignoring costs IgnorePenalty.
+GameConfig.INCIDENTS = {
+	MinGap = 180,
+	MaxGap = 240,
+	FreePlayMinGap = 360,
+	FreePlayMaxGap = 480,
+	RespondSeconds = 90,
+	LockSeconds = 120,
+	IgnorePenalty = 5,
+	GoodBonus = 3,
+	DrainEvery = 5,
+	DrainSeconds = 60,
+	AutoClearSeconds = 30,
+}
+
+-- Key hires, bought with cash. Each one counters one incident kind (see Incidents.luau).
+GameConfig.KEY_HIRES = {
+	SecurityEngineer = { Name = "Security Engineer", Price = 3000, Counters = "Breach" },
+	QAManager = { Name = "QA Manager", Price = 3000, Counters = "Vulnerability" },
+	PRLead = { Name = "PR Lead", Price = 3500, Counters = "Naysayer" },
+}
+
 -- Hired employees build parts on their own; seconds per part before perks, and the grades they produce.
 GameConfig.WORKFORCE = { BuildSeconds = 25, Grade = "B", BonusGrade = "A" }
 
