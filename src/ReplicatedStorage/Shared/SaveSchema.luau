@@ -27,6 +27,9 @@ export type PlayerSave = {
 	ActGoal: number,
 	LockJobId: string?,
 	LockTime: number,
+	Reputation: number,
+	Act3Earned: number,
+	ConferenceReadyAt: number,
 }
 
 export type SaveCatalog = {
@@ -46,6 +49,7 @@ local MAX_NAME_CHARS = 24
 local MAX_DECOR_ITEMS = 200
 local MAX_DECOR_CELL = 63
 local DECOR_ROTATIONS = { [0] = true, [90] = true, [180] = true, [270] = true }
+local DEFAULT_REPUTATION = 50
 local GRADES = { "S", "A", "B", "C" }
 
 local SaveSchema = {}
@@ -127,6 +131,9 @@ function SaveSchema.Default(catalog: SaveCatalog): PlayerSave
 		ActGoal = 0,
 		LockJobId = nil,
 		LockTime = 0,
+		Reputation = DEFAULT_REPUTATION,
+		Act3Earned = 0,
+		ConferenceReadyAt = 0,
 	}
 end
 
@@ -191,6 +198,16 @@ function SaveSchema.Sanitize(raw: any, catalog: SaveCatalog): PlayerSave
 	end
 	if isFinite(raw.LockTime) then
 		save.LockTime = raw.LockTime
+	end
+
+	if isFinite(raw.Reputation) then
+		save.Reputation = math.clamp(raw.Reputation, 0, 100)
+	end
+	if isFinite(raw.Act3Earned) then
+		save.Act3Earned = math.max(0, raw.Act3Earned)
+	end
+	if isFinite(raw.ConferenceReadyAt) then
+		save.ConferenceReadyAt = raw.ConferenceReadyAt
 	end
 
 	return save

@@ -107,6 +107,20 @@ tests["act 2 fields sanitized"] = function()
 	assert(SaveSchema.Sanitize({ ActGoal = 3.1 }, CATALOG).ActGoal == 3.1)
 end
 
+tests["act 3 fields default and clamp"] = function()
+	local fresh = SaveSchema.Default(CATALOG)
+	assert(fresh.Reputation == 50 and fresh.Act3Earned == 0 and fresh.ConferenceReadyAt == 0)
+	assert(SaveSchema.Sanitize({}, CATALOG).Reputation == 50)
+	assert(SaveSchema.Sanitize({ Reputation = 150 }, CATALOG).Reputation == 100)
+	assert(SaveSchema.Sanitize({ Reputation = -5 }, CATALOG).Reputation == 0)
+	assert(SaveSchema.Sanitize({ Reputation = 0 / 0 }, CATALOG).Reputation == 50)
+	assert(SaveSchema.Sanitize({ Reputation = 72 }, CATALOG).Reputation == 72)
+	assert(SaveSchema.Sanitize({ Act3Earned = -9 }, CATALOG).Act3Earned == 0)
+	assert(SaveSchema.Sanitize({ Act3Earned = 1234.5 }, CATALOG).Act3Earned == 1234.5)
+	assert(SaveSchema.Sanitize({ ConferenceReadyAt = 1700000000 }, CATALOG).ConferenceReadyAt == 1700000000)
+	assert(SaveSchema.Sanitize({ ConferenceReadyAt = 0 / 0 }, CATALOG).ConferenceReadyAt == 0)
+end
+
 tests["decor survives a round trip and junk is dropped"] = function()
 	assert(#SaveSchema.Default(CATALOG).Decor == 0)
 	local raw = {

@@ -97,6 +97,8 @@ function ProgressService.CheckMilestones(player: Player)
 		Valuation = save.Valuation,
 		ActGoal = save.ActGoal,
 		Hires = hires,
+		Act3Earned = save.Act3Earned,
+		Act3Goal = 0, -- no Act 3 goal exists yet; Earned milestones stay unreached until it does
 		Flags = save.StoryFlags,
 	}
 	local reached = Story.NewMilestones(GameConfig.ACT2.Milestones :: any, state, GameConfig.ACT2.ValuationStep)

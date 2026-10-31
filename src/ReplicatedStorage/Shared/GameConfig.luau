@@ -167,7 +167,9 @@ GameConfig.DAY_CYCLE = {
 -- Act 2 ends when valuation reaches its starting value plus this step.
 export type Milestone = {
 	Id: string,
-	Kind: "Hires" | "ActDeploys" | "GoalProgress",
+	Act: number,
+	Kind: "Hires" | "ActDeploys" | "GoalProgress" | "Flag" | "Earned",
+	Flag: string?,
 	At: number, -- hires owned, deploys shipped this act, or the fraction of the valuation goal reached
 	Title: string,
 	Body: string,
@@ -178,10 +180,10 @@ export type Milestone = {
 GameConfig.ACT2 = {
 	ValuationStep = 1.5,
 	Milestones = {
-		{ Id = "FirstHire", Kind = "Hires", At = 1, Title = "FIRST HIRE!", Body = "Somebody else can write the bugs now." },
-		{ Id = "PixelForge", Kind = "ActDeploys", At = 2, Title = "NEW CLIENT", Body = "PixelForge Indie Studio wants a game." },
-		{ Id = "BrewCrew", Kind = "ActDeploys", At = 4, Title = "NEW CLIENT", Body = "BrewCrew Coffee Rewards wants an app." },
-		{ Id = "Halfway", Kind = "GoalProgress", At = 0.5, Title = "HALFWAY THERE", Body = "Investors are starting to call back." },
+		{ Id = "FirstHire", Act = 2, Kind = "Hires", At = 1, Title = "FIRST HIRE!", Body = "Somebody else can write the bugs now." },
+		{ Id = "PixelForge", Act = 2, Kind = "ActDeploys", At = 2, Title = "NEW CLIENT", Body = "PixelForge Indie Studio wants a game." },
+		{ Id = "BrewCrew", Act = 2, Kind = "ActDeploys", At = 4, Title = "NEW CLIENT", Body = "BrewCrew Coffee Rewards wants an app." },
+		{ Id = "Halfway", Act = 2, Kind = "GoalProgress", At = 0.5, Title = "HALFWAY THERE", Body = "Investors are starting to call back." },
 	} :: { Milestone },
 }
 

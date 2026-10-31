@@ -26,6 +26,30 @@ tests["nothing pending"] = function()
 	assert(Story.NextBeat(state(1, true, false)) == nil)
 end
 
+tests["act 2 ending follows the goal"] = function()
+	local done = { Act2IntroSeen = true, Act2Complete = true }
+	assert(Story.NextBeat(state(2, true, true, done)) == "Act2End")
+	done.Act2EndSeen = true
+	assert(Story.NextBeat(state(2, true, true, done)) == nil)
+end
+
+tests["act 3 opening then finale"] = function()
+	assert(Story.NextBeat(state(3, true, true)) == "Act3Intro")
+	local flags = { Act3IntroSeen = true, GameComplete = true }
+	assert(Story.NextBeat(state(3, true, true, flags)) == "Finale")
+	flags.FinaleSeen = true
+	assert(Story.NextBeat(state(3, true, true, flags)) == nil)
+end
+
+tests["old saves past the act 2 card get the new ending"] = function()
+	assert(Story.NextBeat(state(2, true, true, { Act2IntroSeen = true, Act2Complete = true })) == "Act2End")
+end
+
+tests["act 3 start"] = function()
+	local start = Story.Act3Start(50)
+	assert(start.Act == 3 and start.ActDeploys == 0 and start.Reputation == 50 and start.Act3Earned == 0)
+end
+
 tests["accept done only in order"] = function()
 	local paid = state(1, true, true)
 	assert(Story.AcceptDone(paid, "Act2Intro") == false)
@@ -64,6 +88,8 @@ local function act2(overrides: { [string]: any }): Story.MilestoneState
 		Valuation = 1.2,
 		ActGoal = 2.7,
 		Hires = 0,
+		Act3Earned = 0,
+		Act3Goal = 40000,
 		Flags = {},
 	}
 	for key, value in overrides do
@@ -96,6 +122,23 @@ end
 
 tests["act 1 has no act 2 milestones"] = function()
 	assert(#Story.NewMilestones(GameConfig.ACT2.Milestones, act2({ Act = 1, Hires = 3, ActDeploys = 9 }), STEP) == 0)
+end
+
+tests["milestones only fire in their act"] = function()
+	local defs: { Story.MilestoneDef } = {
+		{ Id = "Deploys", Kind = "ActDeploys", At = 2, Act = 2 },
+		{ Id = "Flagged", Kind = "Flag", At = 0, Act = 3, Flag = "Booth" },
+		{ Id = "HalfWay", Kind = "Earned", At = 0.5, Act = 3 },
+	}
+	local act3 = act2({ Act = 3, ActDeploys = 9 })
+	assert(#Story.NewMilestones(defs, act3, STEP) == 0)
+	act3.Flags.Booth = true
+	assert(table.find(Story.NewMilestones(defs, act3, STEP), "Flagged"))
+	assert(not table.find(Story.NewMilestones(defs, act3, STEP), "Deploys"))
+	act3.Act3Earned = 20000
+	assert(table.find(Story.NewMilestones(defs, act3, STEP), "HalfWay"))
+	act3.Act3Earned = 19000
+	assert(not table.find(Story.NewMilestones(defs, act3, STEP), "HalfWay"))
 end
 
 tests["client milestones match when act 2 clients unlock"] = function()

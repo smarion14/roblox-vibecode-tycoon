@@ -2,7 +2,7 @@
 -- Pure: no requires, no Roblox APIs. Which story cutscene comes next, the Act 1 -> Act 2 transition, the act goal,
 -- and the cheap checks on a startup name before the server's text filter sees it.
 
-export type CutsceneId = "Act1Intro" | "Act1End" | "Act2Intro"
+export type CutsceneId = "Act1Intro" | "Act1End" | "Act2Intro" | "Act2End" | "Act3Intro" | "Finale"
 
 export type StoryState = {
 	Act: number,
@@ -17,10 +17,12 @@ export type MilestoneState = {
 	Valuation: number,
 	ActGoal: number,
 	Hires: number,
+	Act3Earned: number,
+	Act3Goal: number,
 	Flags: { [string]: boolean },
 }
 
-export type MilestoneDef = { Id: string, Kind: string, At: number }
+export type MilestoneDef = { Id: string, Kind: string, At: number, Act: number, Flag: string? }
 
 local NAME_MIN = 3
 local NAME_MAX = 24
@@ -37,8 +39,20 @@ function Story.NextBeat(state: StoryState): CutsceneId?
 		end
 		return nil
 	end
-	if state.Act == 2 and not state.Flags.Act2IntroSeen then
-		return "Act2Intro"
+	if state.Act == 2 then
+		if not state.Flags.Act2IntroSeen then
+			return "Act2Intro"
+		elseif state.Flags.Act2Complete and not state.Flags.Act2EndSeen then
+			return "Act2End"
+		end
+		return nil
+	end
+	if state.Act == 3 then
+		if not state.Flags.Act3IntroSeen then
+			return "Act3Intro"
+		elseif state.Flags.GameComplete and not state.Flags.FinaleSeen then
+			return "Finale"
+		end
 	end
 	return nil
 end
@@ -52,21 +66,35 @@ function Story.Act2Start(valuation: number, step: number): { Act: number, ActDep
 	return { Act = 2, ActDeploys = 0, ActGoal = valuation + step }
 end
 
+function Story.Act3Start(startReputation: number): { Act: number, ActDeploys: number, Reputation: number, Act3Earned: number }
+	return { Act = 3, ActDeploys = 0, Reputation = startReputation, Act3Earned = 0 }
+end
+
 function Story.ActGoalReached(act: number, valuation: number, goal: number): boolean
 	return act >= 2 and valuation >= goal
 end
 
--- Act 2 milestones reached but not yet celebrated (flag "Milestone_<Id>" marks one as shown), in list order.
+-- Milestones of the current act reached but not yet celebrated (flag "Milestone_<Id>" marks one as shown), in list order.
 function Story.NewMilestones(defs: { MilestoneDef }, state: MilestoneState, valuationStep: number): { string }
 	local reached: { string } = {}
 	if state.Act < 2 then
 		return reached
 	end
+	local earned = if state.Act3Goal > 0 then state.Act3Earned / state.Act3Goal else 0
 	local progress = (state.Valuation - (state.ActGoal - valuationStep)) / valuationStep
 	for _, def in defs do
-		local value = if def.Kind == "Hires" then state.Hires elseif def.Kind == "ActDeploys" then state.ActDeploys else progress
+		if def.Act ~= state.Act or state.Flags[`Milestone_{def.Id}`] then
+			continue
+		end
+		if def.Kind == "Flag" then
+			if def.Flag and state.Flags[def.Flag] then
+				table.insert(reached, def.Id)
+			end
+			continue
+		end
+		local value = if def.Kind == "Hires" then state.Hires elseif def.Kind == "ActDeploys" then state.ActDeploys elseif def.Kind == "Earned" then earned else progress
 		-- A hair of slack so a goal fraction that lands exactly on the line counts.
-		if value >= def.At - 1e-9 and not state.Flags[`Milestone_{def.Id}`] then
+		if value >= def.At - 1e-9 then
 			table.insert(reached, def.Id)
 		end
 	end
