@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BattleState = require(Shared:WaitForChild("BattleState"))
+local BulletHell = require(Shared:WaitForChild("BulletHell"))
 local Economy = require(Shared:WaitForChild("Economy"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local PromptBank = require(Shared:WaitForChild("PromptBank"))
@@ -14,6 +15,7 @@ local RemoteNames = require(Shared:WaitForChild("RemoteNames"))
 local RemoteManager = require(ReplicatedStorage:WaitForChild("Network"):WaitForChild("RemoteManager"))
 local StartupDataModule = require(ServerScriptService:WaitForChild("Components"):WaitForChild("StartupDataModule"))
 local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
+local IncidentService = require(script.Parent:WaitForChild("IncidentService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 
 type ActiveBattle = {
@@ -23,15 +25,32 @@ type ActiveBattle = {
 	SentBugs: number, -- bugs the client has definitions for; shards appended later go out in BattleUpdate.Spawned
 }
 
+-- Act 3 bullet hell. Its clock is os.clock() - ClockStart, so the battle starts at 0 on the server just as it does on
+-- the client (BulletHell.New(0, ...) on both sides gives bit-identical schedules).
+-- ShipLag: ship samples reach the server about half a round trip after the client drew them, so they're stamped that
+-- much earlier (half the ping at battle start, capped). The cap stays well under LatencyGrace, so a stamp never lands
+-- on a step that's already judged, and a cheater faking lag gains at most SHIP_LAG_CAP of hindsight.
+type HellBattle = {
+	Battle: BulletHell.Battle,
+	ClockStart: number,
+	ShipLag: number,
+	LastKey: string,
+	SentKills: { [number]: boolean },
+	Running: boolean,
+}
+
 local TICK_SECONDS = 0.1
 -- above the ship plus every wingman (a beam reports up to 4 at once); BattleState also enforces per-weapon budgets
 local SHOT_RATE_LIMIT = 30
-local SHIP_RATE_LIMIT = 15 -- the client streams its ship x at 10 Hz
+local SHIP_RATE_LIMIT = 15 -- the client streams its ship at 10 Hz
 local WEAPONS: { [string]: BattleState.Weapon } = { Ship = "Ship", Spread = "Spread", Beam = "Beam", Missile = "Missile" }
+local BOSSES: { [string]: BulletHell.BossKind } = { Hacker = "Hacker", Naysayer = "Naysayer", Swarm = "Swarm" }
+local SHIP_LAG_CAP = 0.1
 
 local BattleService = {}
 
 local battles: { [Player]: ActiveBattle } = {}
+local hells: { [Player]: HellBattle } = {}
 
 local function bulletHits(battle: BattleState.Battle): number
 	local hits = 0
@@ -108,9 +127,9 @@ local function endBattle(player: Player, active: ActiveBattle)
 	battles[player] = nil
 
 	local result = BattleState.Result(active.Battle)
-	local payout = AssemblyService.SettleDeploy(player, result)
-	StartupDataModule.SetActivity(player, "Idle")
 	local score = Economy.PerformanceScore(result.MoodRatio, result.Accuracy, result.MaxCombo)
+	local payout = AssemblyService.SettleDeploy(player, result.Status == "Shipped", score)
+	StartupDataModule.SetActivity(player, "Idle")
 	RemoteManager.FireClient(RemoteNames.BattleEnded, player, result, payout, Economy.PerformanceGrade(score))
 end
 
@@ -120,6 +139,130 @@ local function afterInput(player: Player, active: ActiveBattle, force: boolean)
 	if active.Battle.Status ~= "Running" then
 		endBattle(player, active)
 	end
+end
+
+local function hellNow(active: HellBattle): number
+	return os.clock() - active.ClockStart
+end
+
+-- Pushes lives, grazes, combo, invulnerability, the shield, boss HP and new kills (id + time, so the client cancels
+-- the same bullets) whenever any of it changed. Times are already relative to the battle start.
+local function pushHellUpdate(player: Player, active: HellBattle)
+	local b = active.Battle
+	local bosses = {}
+	local bossHp = 0
+	local killed = {}
+	for _, enemy in b.Enemies do
+		if enemy.Kind ~= "Popcorn" then
+			table.insert(bosses, { Id = enemy.Id, Hp = enemy.Hp })
+			bossHp += enemy.Hp
+		end
+		local killedAt = enemy.KilledAt
+		if killedAt and not active.SentKills[enemy.Id] then
+			active.SentKills[enemy.Id] = true
+			table.insert(killed, { Id = enemy.Id, At = killedAt })
+		end
+	end
+	local key = `{b.Lives}|{b.Grazes}|{b.Combo}|{b.InvulnUntil}|{b.ShieldUsedPhase}|{bossHp}|{b.SplitAt}|{b.BossDownAt}|{b.Status}`
+	if #killed == 0 and key == active.LastKey then
+		return
+	end
+	active.LastKey = key
+	RemoteManager.FireClient(RemoteNames.BattleUpdate, player, {
+		Lives = b.Lives,
+		Grazes = b.Grazes,
+		Combo = b.Combo,
+		InvulnUntil = b.InvulnUntil,
+		ShieldUsedPhase = b.ShieldUsedPhase,
+		Bosses = bosses,
+		Killed = killed,
+		SplitAt = b.SplitAt,
+		BossDownAt = b.BossDownAt,
+		Status = b.Status,
+	})
+end
+
+-- Failed pays nothing and keeps the job (SettleDeploy); the Act 3 reputation multiplier is applied in there.
+local function endHell(player: Player, active: HellBattle)
+	if not active.Running then
+		return
+	end
+	active.Running = false
+	hells[player] = nil
+
+	local b = active.Battle
+	local result = BulletHell.Result(b)
+	local payout = AssemblyService.SettleDeploy(player, result.Status == "Shipped", result.Score)
+	StartupDataModule.SetActivity(player, "Idle")
+	RemoteManager.FireClient(RemoteNames.BattleEnded, player, {
+		Status = result.Status,
+		Successes = b.Killed,
+		Mistakes = b.MaxLives - result.LivesLeft,
+		MaxCombo = result.MaxCombo,
+		Grazes = result.Grazes,
+	}, payout, Economy.PerformanceGrade(result.Score))
+end
+
+local function afterHellInput(player: Player, active: HellBattle)
+	pushHellUpdate(player, active)
+	if active.Battle.Status ~= "Running" then
+		endHell(player, active)
+	end
+end
+
+local function hiredRoles(hires: { [string]: boolean }): { string }
+	local roles: { string } = {}
+	for _, role in GameConfig.COMPONENTS do
+		if hires[role] then
+			table.insert(roles, role)
+		end
+	end
+	return roles
+end
+
+-- Act 3: a seeded bullet hell. The client gets the seed and the options and rebuilds the same schedule.
+local function startBulletHell(player: Player, inventory: Economy.Inventory, hires: { [string]: boolean }, job: GameConfig.ClientDef)
+	local parts = BattleState.LoadoutFrom(inventory, GameConfig.BATTLE_RULES)
+	local options: BulletHell.Options = {
+		Boss = BOSSES[job.Boss or ""] or "Hacker",
+		EliteHalfWaves = IncidentService.TakeEliteWave(player),
+		Loadout = { Shield = parts.Shield > 0, ExtraLife = parts.Rollback, Homing = parts.Homing, FireInterval = parts.FireInterval },
+		Wingmen = hiredRoles(hires),
+	}
+	local seed = Random.new():NextInteger(1, 2 ^ 31 - 1)
+	local active: HellBattle = {
+		Battle = BulletHell.New(0, seed, options, GameConfig.BULLET_HELL),
+		ClockStart = os.clock(),
+		ShipLag = math.clamp(player:GetNetworkPing() / 2, 0, SHIP_LAG_CAP),
+		LastKey = "",
+		SentKills = {},
+		Running = true,
+	}
+	local serverStart = Workspace:GetServerTimeNow()
+	hells[player] = active
+	StartupDataModule.SetActivity(player, "Battle")
+	RemoteManager.FireClient(RemoteNames.BattleStarted, player, {
+		Mode = "BulletHell",
+		ServerStart = serverStart,
+		ClientName = job.Name,
+		Seed = seed,
+		Boss = options.Boss,
+		EliteHalfWaves = options.EliteHalfWaves,
+		Loadout = options.Loadout,
+		Wingmen = options.Wingmen,
+	})
+
+	-- Tick judges up to LatencyGrace behind the clock on a fixed grid, so this cadence only sets update latency.
+	task.spawn(function()
+		while active.Running and hells[player] == active do
+			task.wait(TICK_SECONDS)
+			if not active.Running then
+				break
+			end
+			BulletHell.Tick(active.Battle, hellNow(active))
+			afterHellInput(player, active)
+		end
+	end)
 end
 
 local function missingComponents(inventory: Economy.Inventory, recipe: Economy.Recipe): { string }
@@ -151,17 +294,16 @@ local function onDeployTerminal(player: Player)
 		RemoteManager.FireClient(RemoteNames.Notice, player, `Not ready to ship. Missing: {missing}`)
 		return
 	end
+	if save.Act == 3 then
+		startBulletHell(player, save.Inventory, save.Hires, job)
+		return
+	end
 
 	-- Act 2 is a squad battle: hired roles fly as wingmen (in role order), the job's project picks the extra
 	-- enemy, and the boss fires volleys. Act 1 passes no options and plays exactly as before.
 	local options: BattleState.SquadOptions? = nil
 	if save.Act == 2 then
-		local wingmen: { string } = {}
-		for _, role in GameConfig.COMPONENTS do
-			if save.Hires[role] then
-				table.insert(wingmen, role)
-			end
-		end
+		local wingmen = hiredRoles(save.Hires)
 		local enemyKind: ("Crash" | "Lag")? = if job.Project == "MobileApp"
 			then "Crash"
 			elseif job.Project == "Game" then "Lag"
@@ -245,6 +387,14 @@ local function onShotHit(player: Player, bugId: any, weapon: any)
 			return
 		end
 	end
+	local hell = hells[player]
+	if hell then
+		if hell.Running then
+			BulletHell.Kill(hell.Battle, bugId, hellNow(hell), chosen)
+			afterHellInput(player, hell)
+		end
+		return
+	end
 	local active = battles[player]
 	if not active or not active.Running then
 		return
@@ -253,9 +403,21 @@ local function onShotHit(player: Player, bugId: any, weapon: any)
 	afterInput(player, active, killed)
 end
 
--- The client streams its ship x (0-1 across the field); BattleState clamps it to what the ship could have flown.
-local function onShipMoved(player: Player, x: any)
-	if type(x) ~= "number" or x ~= x or x < 0 or x > 1 then -- x ~= x rejects NaN, the range rejects infinity
+local function isUnit(value: any): boolean
+	return type(value) == "number" and value == value and value >= 0 and value <= 1 -- NaN fails ==, the range rejects infinity
+end
+
+-- The client streams its ship x (0-1 across the field), plus y in Act 3; the battle clamps it to what the ship could
+-- have flown, on the server clock.
+local function onShipMoved(player: Player, x: any, y: any)
+	if not isUnit(x) then
+		return
+	end
+	local hell = hells[player]
+	if hell then
+		if hell.Running and isUnit(y) then
+			BulletHell.MoveShip(hell.Battle, x, y, math.max(hellNow(hell) - hell.ShipLag, 0))
+		end
 		return
 	end
 	local active = battles[player]
@@ -277,6 +439,11 @@ function BattleService.Start()
 		if active then
 			active.Running = false
 			battles[player] = nil
+		end
+		local hell = hells[player]
+		if hell then
+			hell.Running = false
+			hells[player] = nil
 		end
 	end)
 end

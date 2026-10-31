@@ -1049,6 +1049,9 @@ local function onUpdate(snapshot: any)
 end
 
 local function onEnded(result: any, payout: any, grade: any)
+	if not renderConnection then
+		return -- not this screen's battle (Act 3 ends on BulletHellController)
+	end
 	clearBattle()
 	Music.Stop(2)
 	local shipped = type(result) == "table" and result.Status == "Shipped"

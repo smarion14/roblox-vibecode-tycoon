@@ -5,7 +5,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local BattleState = require(Shared:WaitForChild("BattleState"))
 local Economy = require(Shared:WaitForChild("Economy"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local Reputation = require(Shared:WaitForChild("Reputation"))
@@ -80,15 +79,15 @@ function AssemblyService.BuildPart(player: Player, component: string, grade: Eco
 	return outcome, replaced
 end
 
-function AssemblyService.SettleDeploy(player: Player, result: BattleState.BattleResult): number
+-- score: the battle's performance score (0-2) that feeds Economy.Payout; each battle kind computes its own.
+function AssemblyService.SettleDeploy(player: Player, shipped: boolean, score: number): number
 	local job = AssemblyService.GetActiveJob(player)
-	if result.Status ~= "Shipped" or not job then
+	if not shipped or not job then
 		return 0
 	end
 
 	local payout = 0
 	StartupDataModule.Update(player, function(save)
-		local score = Economy.PerformanceScore(result.MoodRatio, result.Accuracy, result.MaxCombo)
 		payout = Economy.Payout(Economy.TotalUnits(save.Inventory), save.Valuation, score, job.TierMultiplier)
 		if save.Act == 3 then
 			local act3 = GameConfig.ACT3
