@@ -6,12 +6,18 @@ local CFG = GameConfig.BULLET_HELL
 local START = 100
 local EPSILON = 1e-9
 
-local function options(shield: boolean?, extraLife: boolean?, eliteHalfWaves: number?): BulletHell.Options
+local function options(
+	shield: boolean?,
+	extraLife: boolean?,
+	eliteHalfWaves: number?,
+	boss: BulletHell.BossKind?,
+	wingmen: { string }?
+): BulletHell.Options
 	return {
-		Boss = "Hacker",
+		Boss = boss or "Hacker",
 		EliteHalfWaves = eliteHalfWaves or 0,
 		Loadout = { Shield = shield == true, ExtraLife = extraLife == true, Homing = false, FireInterval = 0.3 },
-		Wingmen = {},
+		Wingmen = wingmen or {},
 	}
 end
 
@@ -47,6 +53,23 @@ local function sameBullets(a: { BulletHell.Bullet }, b: { BulletHell.Bullet }): 
 	return true
 end
 
+local function enemiesOf(b: BulletHell.Battle, kind: BulletHell.EnemyKind): { BulletHell.Enemy }
+	local list: { BulletHell.Enemy } = {}
+	for _, enemy in b.Enemies do
+		if enemy.Kind == kind then
+			table.insert(list, enemy)
+		end
+	end
+	return list
+end
+
+-- A battle whose enemies are scheduled but whose bullets are cleared, so claims can be tested without the idle ship dying.
+local function quietBattle(seed: number, opts: BulletHell.Options?): BulletHell.Battle
+	local b = newBattle(seed, opts)
+	b.Bullets = {}
+	return b
+end
+
 local tests = {}
 
 tests["rng is deterministic and in [0, 1)"] = function()
@@ -69,6 +92,13 @@ tests["same seed, same bullets"] = function()
 		assert(i == 1 or a.Bullets[i - 1].FiredAt <= bullet.FiredAt, "sorted by fire time")
 		assert(bullet.GoneAt > bullet.FiredAt, "every bullet has a lifetime")
 	end
+	for i, enemy in a.Enemies do
+		assert(enemy.Id == i, "enemy ids are list indices")
+		local x, y = BulletHell.EnemyPosition(enemy, enemy.SpawnAt + 2)
+		local x2, y2 = BulletHell.EnemyPosition(b.Enemies[i], enemy.SpawnAt + 2)
+		assert(x == x2 and y == y2, "same seed, same enemy paths")
+	end
+	assert(#enemiesOf(a, "Popcorn") > 20 and #enemiesOf(a, "Boss") == 1, "waves of popcorn, then one boss")
 end
 
 tests["curved bullets are analytic and leave the field"] = function()
@@ -241,6 +271,160 @@ tests["time up ships, elite waves lengthen the fight"] = function()
 	assert(c.EndsAt == endAt + CFG.EliteWaveSeconds, "one full elite wave")
 	local boss = c.Phases[#c.Phases]
 	assert(boss.Kind == "Boss" and c.Phases[#c.Phases - 1].Kind == "Elite", "elite wave right before the boss")
+end
+
+tests["boss pattern by client"] = function()
+	local hacker = newBattle(7, options(false, false, 0, "Hacker"))
+	local hackerBoss = enemiesOf(hacker, "Boss")[1]
+	local curved = 0
+	for _, bullet in hacker.Bullets do
+		if bullet.Owner == hackerBoss.Id and bullet.Curve ~= 0 then
+			curved += 1
+		end
+	end
+	assert(curved > 100, "the Hacker fires curving streams")
+
+	local naysayer = newBattle(7, options(false, false, 0, "Naysayer"))
+	local naysayerBoss = enemiesOf(naysayer, "Boss")[1]
+	local rows: { [number]: { number } } = {}
+	local rowCount = 0
+	for _, bullet in naysayer.Bullets do
+		if bullet.Owner == naysayerBoss.Id then
+			assert(bullet.VX == 0 and bullet.VY > 0 and bullet.VY < CFG.BulletSpeed, "bubbles fall slowly, straight down")
+			if not rows[bullet.FiredAt] then
+				rows[bullet.FiredAt] = {}
+				rowCount += 1
+			end
+			table.insert(rows[bullet.FiredAt], bullet.X)
+		end
+	end
+	assert(rowCount >= 10, "the Naysayer rains walls")
+	for _, row in rows do
+		table.sort(row)
+		assert(#row >= 12, "a row is a wall")
+		local widest = 0
+		for i = 2, #row do
+			widest = math.max(widest, row[i] - row[i - 1] - 2 * CFG.HitRadius)
+		end
+		assert(widest >= 0.12, "every wall has a gap a ship fits through")
+	end
+end
+
+tests["swarm splits at half health"] = function()
+	local b = quietBattle(3, options(false, false, 0, "Swarm"))
+	local boss = enemiesOf(b, "Boss")[1]
+	local children = enemiesOf(b, "Child")
+	assert(#children == 3, "three children, pre-generated")
+	local t = boss.SpawnAt + 5
+	assert(not BulletHell.Kill(b, children[1].Id, t, "Ship"), "a dormant child can't be hit")
+	for _ = 1, CFG.BossHp / 2 - 1 do
+		assert(BulletHell.Kill(b, boss.Id, t, "Ship"), "boss claim")
+	end
+	assert(b.SplitAt == nil and children[1].ActiveFrom == nil, "no split above half health")
+	assert(BulletHell.Kill(b, boss.Id, t, "Ship"), "the half-health claim")
+	assert(b.SplitAt == t and boss.KilledAt == t, "the big boss splits")
+	for _, child in children do
+		assert(child.ActiveFrom == t and child.Hp == CFG.SwarmChildHp, "each child spawns at the split")
+	end
+	assert(b.BossDownAt == nil, "the children are still up")
+
+	local later = t + CFG.VisibleDelay + 0.1
+	for _, child in children do
+		for _ = 1, CFG.SwarmChildHp do
+			assert(BulletHell.Kill(b, child.Id, later, "Ship"), "child claim")
+		end
+	end
+	assert(b.BossDownAt == later, "last child down: boss down")
+	BulletHell.Tick(b, later + CFG.LatencyGrace + 0.1)
+	assert(b.Status == "Shipped", "boss down ships")
+end
+
+tests["claims need the weapon and a live enemy"] = function()
+	local b = quietBattle(5)
+	local first = b.Enemies[1]
+	local t = first.SpawnAt + 1.5
+	assert(not BulletHell.Kill(b, first.Id, first.SpawnAt - 0.5, "Ship"), "not on screen yet")
+	assert(not BulletHell.Kill(b, first.Id, t, "Spread"), "Spread needs its hire")
+	assert(not BulletHell.Kill(b, first.Id, t, "Laser" :: any), "unknown weapon")
+	assert(not BulletHell.Kill(b, 9999, t, "Ship"), "no such enemy")
+	assert(BulletHell.Kill(b, first.Id, t, "Ship"), "the ship's gun hits")
+	assert(first.KilledAt == t and b.Killed == 1 and b.Combo == 1, "kill recorded, combo up")
+	assert(not BulletHell.Kill(b, first.Id, t, "Ship"), "already dead")
+	local second = b.Enemies[2]
+	assert(not BulletHell.Kill(b, second.Id, second.LeaveAt + CFG.LatencyGrace + 0.1, "Ship"), "already left the screen")
+
+	local c = quietBattle(5, options(false, false, 0, nil, { CFG.Weapons.Spread.Role }))
+	assert(BulletHell.Kill(c, 1, t, "Spread"), "a hired Spread wingman hits")
+
+	-- per-weapon budget: floor(elapsed / FireInterval) * 1 + ShotBudgetSlack
+	local d = quietBattle(5)
+	d.Options.Loadout.FireInterval = 10
+	local boss = enemiesOf(d, "Boss")[1]
+	local at = boss.SpawnAt + 1
+	local budget = math.floor((at - START) / 10) + CFG.ShotBudgetSlack
+	for _ = 1, budget do
+		assert(BulletHell.Kill(d, boss.Id, at, "Ship"), "inside the budget")
+	end
+	assert(not BulletHell.Kill(d, boss.Id, at, "Ship"), "past the budget")
+end
+
+tests["a dead enemy stops firing"] = function()
+	local b = quietBattle(11)
+	local scheduled = newBattle(11).Bullets
+	local enemy = b.Enemies[1]
+	local t = enemy.SpawnAt + 2
+	local before, after = 0, 0
+	for _, bullet in scheduled do
+		if bullet.Owner == enemy.Id then
+			assert(BulletHell.Fired(b, bullet), "alive: every shot fires")
+			if bullet.FiredAt > t then
+				after += 1
+			else
+				before += 1
+			end
+		end
+	end
+	assert(before > 0 and after > 0, "the enemy fires before and after the kill time")
+	assert(BulletHell.Kill(b, enemy.Id, t, "Ship"), "kill")
+	for _, bullet in scheduled do
+		if bullet.Owner == enemy.Id then
+			assert(BulletHell.Fired(b, bullet) == (bullet.FiredAt <= t), "only shots fired before the kill fly")
+		end
+	end
+end
+
+tests["score formula"] = function()
+	local b = newBattle(1)
+	b.Killed = 30
+	b.Grazes = 20
+	b.MaxCombo = 45
+	b.Lives = 2
+	local expected = 0.6 * 30 / #b.Enemies + 0.4 * (20 / 40) + 0.5 * 1 + 0.5 * 2 / 3
+	assert(math.abs(BulletHell.Score(b) - expected) < EPSILON, "score matches the formula")
+	local result = BulletHell.Result(b)
+	assert(result.Status == "Running" and result.Grazes == 20 and result.MaxCombo == 45, "result fields")
+	assert(result.LivesLeft == 2 and math.abs(result.Score - expected) < EPSILON, "result score and lives")
+
+	b.Killed, b.Grazes, b.MaxCombo, b.Lives = #b.Enemies, 400, 400, 3
+	assert(math.abs(BulletHell.Score(b) - 2) < EPSILON, "a perfect run scores 2")
+	b.Killed, b.Grazes, b.MaxCombo, b.Lives = 0, 0, 0, 0
+	assert(BulletHell.Score(b) == 0, "nothing scores 0")
+end
+
+tests["elite wave lengthens the fight"] = function()
+	local a = newBattle(9)
+	local c = newBattle(9, options(false, false, 2))
+	local bossA, bossC = enemiesOf(a, "Boss")[1], enemiesOf(c, "Boss")[1]
+	assert(bossC.SpawnAt == bossA.SpawnAt + CFG.EliteWaveSeconds, "the boss spawns one elite wave later")
+	local elite = c.Phases[#c.Phases - 1]
+	local eliteEnemies = 0
+	for _, enemy in c.Enemies do
+		if enemy.Kind == "Popcorn" and enemy.SpawnAt >= elite.StartsAt and enemy.SpawnAt < bossC.SpawnAt then
+			eliteEnemies += 1
+		end
+	end
+	assert(eliteEnemies >= 10, "the elite wave is full of enemies")
+	assert(#c.Enemies == #a.Enemies + eliteEnemies, "and only adds enemies")
 end
 
 return tests

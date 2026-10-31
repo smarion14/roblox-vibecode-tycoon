@@ -16,10 +16,25 @@
 -- depend on how often Tick runs. Each substep is swept: bullet and ship (ShipAt interpolates its samples) move
 -- linearly across it and their closest approach is judged, so a full-speed ship can't tunnel through a bullet.
 --
--- Seam for Task 10: emitPhase fills each phase with PLACEHOLDER emitters. Replace its body with the real enemy and
--- boss emitters; they only need to call fire(...) for bullets fired inside the field, in any order.
+-- Enemies fly deterministic paths (EnemyPosition) and every bullet names the enemy that fired it (Owner). A bullet
+-- flies only if its owner was active and alive when it fired (Fired), so a kill cancels the rest of an enemy's
+-- schedule on both sides once the client learns the kill time. Popcorn enemies come in groups during the waves and
+-- fire fans aimed at a lane or short straight streams; the ship's position isn't known when the schedule is built,
+-- so "aimed" means at a seeded lane on the ship's row. One boss holds the last phase:
+--   Hacker: a rotating spiral of curving streams that reverses now and then.
+--   Naysayer: slow walls of bubbles packed tighter than the hitbox, each with one gap at a random x.
+--   Swarm: rings of shots; at half HP it splits into 3 children. The children are generated with the schedule,
+--   dormant (ActiveFrom = nil, their bullets don't fly) until the split, which the server tells the client (SplitAt).
+-- Schedule decisions use only times and RNG draws, never sin/cos results, so client and server build the same list.
+--
+-- Kills (Kill): Act 2's claim model. One claim takes one HP from a live, on-screen enemy; each weapon can claim at
+-- most floor(elapsed / Interval) × PerShot + ShotBudgetSlack kills, and a wingman's weapon needs its role hired.
+-- Once every boss is down (BossDownAt), judging stops there and the battle ships.
 
 export type BossKind = "Hacker" | "Naysayer" | "Swarm"
+export type Weapon = "Ship" | "Spread" | "Beam" | "Missile"
+-- Act 2 wingman weapons (GameConfig.SQUAD.Weapons); declared here because pure modules cannot require GameConfig.
+export type WeaponRules = { Role: string, Interval: number, PerShot: number }
 export type Loadout = { Shield: boolean, ExtraLife: boolean, Homing: boolean, FireInterval: number }
 export type Options = { Boss: BossKind, EliteHalfWaves: number, Loadout: Loadout, Wingmen: { string } }
 
@@ -39,9 +54,15 @@ export type Config = {
 	BossSeconds: number,
 	BulletSpeed: number,
 	EliteWaveSeconds: number,
+	BossHp: number,
+	SwarmChildHp: number,
+	VisibleDelay: number,
+	ShotBudgetSlack: number,
+	Weapons: { Spread: WeaponRules, Beam: WeaponRules, Missile: WeaponRules },
 }
 
 -- Fired from (X, Y) at velocity (VX, VY); Curve (radians/s) turns the velocity for the first CURVE_SECONDS.
+-- Owner: the id of the enemy that fired it, 0 for none.
 export type Bullet = {
 	Id: number,
 	FiredAt: number,
@@ -51,6 +72,21 @@ export type Bullet = {
 	VY: number,
 	Curve: number,
 	GoneAt: number,
+	Owner: number,
+}
+
+export type EnemyKind = "Popcorn" | "Boss" | "Child"
+export type Enemy = {
+	Id: number,
+	Kind: EnemyKind,
+	SpawnAt: number, -- a child shares its boss's: it orbits the boss's path
+	LeaveAt: number,
+	X: number, -- where it hovers; the boss sways around it
+	Y: number,
+	Phase: number, -- sway phase (popcorn) or orbit angle (child), radians
+	Hp: number,
+	ActiveFrom: number?, -- nil while a Swarm child is dormant
+	KilledAt: number?,
 }
 
 export type PhaseKind = "Wave" | "Elite" | "Boss"
@@ -67,6 +103,11 @@ export type Battle = {
 	Config: Config,
 	Phases: { Phase }, -- in time order; each is a "wave" for the shield
 	Bullets: { Bullet }, -- sorted by FiredAt, Id = index
+	Enemies: { Enemy }, -- Id = index: popcorn in spawn order, then the boss, then its children
+	Killed: number,
+	WeaponShots: { [string]: number }, -- kills claimed per Weapon
+	SplitAt: number?, -- when the Swarm split and its children became active
+	BossDownAt: number?,
 	Lives: number,
 	MaxLives: number,
 	InvulnUntil: number,
@@ -82,6 +123,8 @@ export type Battle = {
 	Status: BattleStatus,
 }
 
+export type BattleResult = { Status: BattleStatus, Score: number, Grazes: number, MaxCombo: number, LivesLeft: number }
+
 local STEPS_PER_SECOND = 30
 local STEP = 1 / STEPS_PER_SECOND
 local FIELD_MIN = -0.1
@@ -95,6 +138,46 @@ local SHIP_START_Y = 0.85
 local SHIP_HISTORY = 2
 local SHIP_MIN_GAP = 0.05 -- a sample this close to the one before the last replaces the last, so bursts can't grow the list
 local RNG_WARMUP = 8 -- xorshift's first draws barely differ for nearby seeds
+local TAU = 2 * math.pi
+local OFF_TOP_Y = -0.1 -- enemies fly in from and out to here
+local LANE_Y = 0.9 -- aimed fans aim at a seeded x on this row
+-- Popcorn: groups every Gap seconds of Size enemies STAGGER apart; each fires a volley every Volley seconds while it
+-- hovers: a Fan-wide fan at a lane or a STREAM_SHOTS straight stream. Index 1, 2 = first, later waves; 3 = elite.
+local LEVELS = {
+	{ Gap = 2.6, Size = 3, Volley = 1.1, Fan = 3 },
+	{ Gap = 2.1, Size = 3, Volley = 0.95, Fan = 3 },
+	{ Gap = 1.7, Size = 4, Volley = 0.85, Fan = 5 },
+}
+local POPCORN_STAGGER = 0.15
+local POPCORN_ENTRY = 1
+local POPCORN_HOVER = 4 -- seconds from spawn to leaving
+local POPCORN_EXIT = 0.8
+local POPCORN_SWAY = 0.03
+local POPCORN_SPACING = 0.12
+local FAN_SPREAD = 0.5 -- radians across a fan
+local STREAM_SHOTS = 3
+local STREAM_GAP = 0.1
+local BOSS_X, BOSS_Y = 0.5, 0.2
+local BOSS_ENTRY = 2
+local BOSS_SWAY = 0.22
+local HACKER_ARMS = 5
+local HACKER_INTERVAL = 0.14
+local HACKER_SPIN = 0.7 -- radians/s the spiral turns
+local HACKER_CURVE = 0.35 -- radians/s each stream bends, the same way as the spin
+local HACKER_FLIP_SHOTS = 43 -- the spin reverses every ~6 s
+local HACKER_PAUSE_SHOTS = 5 -- ~0.7 s without shots at each reversal
+local HACKER_SPEED = 0.85 -- × BulletSpeed
+local NAYSAYER_ROW_GAP = 1.4
+local NAYSAYER_SPACING = 0.022 -- under 2 × HitRadius: only the gap gets through
+local NAYSAYER_BUBBLES = 45 -- across x 0.01-0.978
+local NAYSAYER_GAP = 0.18
+local NAYSAYER_SPEED = 0.6 -- × BulletSpeed
+local SWARM_RING = 16
+local SWARM_RING_GAP = 1.1
+local SWARM_RING_SPEED = 0.8 -- × BulletSpeed
+local CHILD_ORBIT_X, CHILD_ORBIT_Y = 0.2, 0.1
+local CHILD_VOLLEY = 1.2
+local CHILD_FAN = 5
 
 local BulletHell = {}
 
@@ -170,43 +253,173 @@ local function lifetime(bullet: Bullet): number
 end
 
 -- A bullet with its GoneAt worked out. Emitters and tests build bullets through this.
-function BulletHell.NewBullet(id: number, firedAt: number, x: number, y: number, vx: number, vy: number, curve: number): Bullet
-	local bullet: Bullet = { Id = id, FiredAt = firedAt, X = x, Y = y, VX = vx, VY = vy, Curve = curve, GoneAt = firedAt }
+function BulletHell.NewBullet(
+	id: number,
+	firedAt: number,
+	x: number,
+	y: number,
+	vx: number,
+	vy: number,
+	curve: number,
+	owner: number?
+): Bullet
+	local bullet: Bullet =
+		{ Id = id, FiredAt = firedAt, X = x, Y = y, VX = vx, VY = vy, Curve = curve, GoneAt = firedAt, Owner = owner or 0 }
 	bullet.GoneAt = firedAt + math.min(lifetime(bullet), MAX_LIFETIME)
 	return bullet
 end
 
-type Fire = (firedAt: number, x: number, y: number, vx: number, vy: number, curve: number) -> ()
+local function easeOut(t: number): number
+	return 1 - (1 - t) ^ 2
+end
 
--- PLACEHOLDER emitters (Task 10 replaces this body with real enemies and boss patterns): fans from the top during
--- waves, denser fans in the elite wave, rings from the boss spot during the boss phase.
-local function emitPhase(phase: Phase, cfg: Config, rng: () -> number, fire: Fire)
+-- The boss's path; a child orbits it.
+local function bossCentre(enemy: Enemy, t: number): (number, number)
+	local dt = math.max(t - enemy.SpawnAt, 0)
+	return enemy.X + BOSS_SWAY * math.sin(0.5 * dt), OFF_TOP_Y + (enemy.Y - OFF_TOP_Y) * easeOut(math.min(dt / BOSS_ENTRY, 1))
+end
+
+-- Where an enemy is at time t. Shared by server and client.
+function BulletHell.EnemyPosition(enemy: Enemy, t: number): (number, number)
+	if enemy.Kind == "Popcorn" then
+		local dt = math.max(t - enemy.SpawnAt, 0)
+		local x = enemy.X + POPCORN_SWAY * math.sin(1.6 * dt + enemy.Phase)
+		if t > enemy.LeaveAt then
+			return x, enemy.Y + (OFF_TOP_Y - enemy.Y) * math.min((t - enemy.LeaveAt) / POPCORN_EXIT, 1)
+		end
+		return x, OFF_TOP_Y + (enemy.Y - OFF_TOP_Y) * easeOut(math.min(dt / POPCORN_ENTRY, 1))
+	end
+	local x, y = bossCentre(enemy, t)
+	if enemy.Kind == "Child" then
+		local angle = enemy.Phase + 0.9 * (t - enemy.SpawnAt)
+		return x + CHILD_ORBIT_X * math.cos(angle), y + CHILD_ORBIT_Y * math.sin(angle)
+	end
+	return x, y
+end
+
+-- Whether a scheduled bullet flies: its owner was active and alive when it fired. The client mirrors ActiveFrom and
+-- KilledAt from the server, so it hides the same bullets the server stops judging.
+function BulletHell.Fired(b: Battle, bullet: Bullet): boolean
+	local owner = b.Enemies[bullet.Owner]
+	if not owner then
+		return true
+	end
+	local activeFrom, killedAt = owner.ActiveFrom, owner.KilledAt
+	return activeFrom ~= nil and bullet.FiredAt >= activeFrom and (killedAt == nil or bullet.FiredAt <= killedAt)
+end
+
+type Fire = (owner: number, firedAt: number, x: number, y: number, vx: number, vy: number, curve: number) -> ()
+type AddEnemy = (kind: EnemyKind, spawnAt: number, leaveAt: number, x: number, y: number, phase: number, hp: number) -> Enemy
+
+-- count (>= 2) bullets spread evenly across FAN_SPREAD around `angle` (radians off straight down).
+local function fan(fire: Fire, owner: number, t: number, x: number, y: number, angle: number, count: number, speed: number)
+	for i = 1, count do
+		local a = angle + FAN_SPREAD * ((i - 1) / (count - 1) - 0.5)
+		fire(owner, t, x, y, math.sin(a) * speed, math.cos(a) * speed, 0)
+	end
+end
+
+local function ring(fire: Fire, owner: number, t: number, x: number, y: number, offset: number, count: number, speed: number)
+	for i = 0, count - 1 do
+		local a = offset + i * TAU / count
+		fire(owner, t, x, y, math.sin(a) * speed, math.cos(a) * speed, 0)
+	end
+end
+
+-- Groups of popcorn enter in a row, hover, fire, and fly back up before the phase ends.
+local function emitWave(phase: Phase, level: number, cfg: Config, rng: () -> number, addEnemy: AddEnemy, fire: Fire)
+	local rules = LEVELS[level]
 	local speed = cfg.BulletSpeed
-	if phase.Kind == "Boss" then
-		local t = phase.StartsAt + 2
-		while t < phase.EndsAt do
-			local offset = rng() * 2 * math.pi
-			for i = 0, 11 do
-				local angle = offset + i * math.pi / 6
-				fire(t, 0.5, 0.15, math.cos(angle) * speed, math.sin(angle) * speed, 0)
+	local t = phase.StartsAt + 0.5
+	while t + (rules.Size - 1) * POPCORN_STAGGER + POPCORN_ENTRY + 1 < phase.EndsAt do
+		local centre = 0.2 + rng() * 0.6
+		local y = 0.1 + rng() * 0.18
+		local aimed = rng() < 0.5
+		for i = 1, rules.Size do
+			local spawnAt = t + (i - 1) * POPCORN_STAGGER
+			local x = math.clamp(centre + (i - (rules.Size + 1) / 2) * POPCORN_SPACING, 0.06, 0.94)
+			local enemy = addEnemy("Popcorn", spawnAt, math.min(spawnAt + POPCORN_HOVER, phase.EndsAt), x, y, rng() * TAU, 1)
+			local laneX = 0.15 + rng() * 0.7
+			local volley = 0
+			local fireAt = spawnAt + POPCORN_ENTRY + 0.2
+			while fireAt + STREAM_SHOTS * STREAM_GAP < enemy.LeaveAt do
+				if aimed then
+					local ex, ey = BulletHell.EnemyPosition(enemy, fireAt)
+					fan(fire, enemy.Id, fireAt, ex, ey, math.atan2(laneX - ex, LANE_Y - ey), rules.Fan, speed)
+				else
+					for k = 0, STREAM_SHOTS - 1 do
+						local at = fireAt + k * STREAM_GAP
+						local ex, ey = BulletHell.EnemyPosition(enemy, at)
+						fire(enemy.Id, at, ex, ey, 0, speed, 0)
+					end
+				end
+				volley += 1
+				fireAt = spawnAt + POPCORN_ENTRY + 0.2 + volley * rules.Volley
 			end
-			t += 1.2
 		end
-		return
+		t += rules.Gap
 	end
-	local interval, size = 0.4, 3
-	if phase.Kind == "Elite" then
-		interval, size = 0.25, 5
-	end
-	local t = phase.StartsAt + 1
-	while t < phase.EndsAt do
-		local x = 0.1 + rng() * 0.8
-		local aim = (rng() - 0.5) * 0.6
-		for i = 1, size do
-			local angle = aim + (i - (size + 1) / 2) * 0.3 -- radians off straight down
-			fire(t, x, 0.05, math.sin(angle) * speed, math.cos(angle) * speed, 0)
+end
+
+local function emitBoss(phase: Phase, boss: BossKind, cfg: Config, rng: () -> number, addEnemy: AddEnemy, fire: Fire)
+	local enemy = addEnemy("Boss", phase.StartsAt, phase.EndsAt, BOSS_X, BOSS_Y, 0, cfg.BossHp)
+	local firstShot = phase.StartsAt + BOSS_ENTRY
+	local speed = cfg.BulletSpeed
+	local shot = 0
+	local t = firstShot
+	if boss == "Hacker" then
+		local angle, spin = 0, 1
+		while t < phase.EndsAt do
+			local x, y = BulletHell.EnemyPosition(enemy, t)
+			for arm = 0, HACKER_ARMS - 1 do
+				local a = angle + arm * TAU / HACKER_ARMS
+				fire(enemy.Id, t, x, y, math.sin(a) * speed * HACKER_SPEED, math.cos(a) * speed * HACKER_SPEED, HACKER_CURVE * spin)
+			end
+			shot += 1
+			if shot % (HACKER_FLIP_SHOTS + HACKER_PAUSE_SHOTS) == HACKER_FLIP_SHOTS then
+				spin = -spin -- pause, then reverse: old and new streams don't cross into a closed pocket
+				shot += HACKER_PAUSE_SHOTS
+			end
+			angle += HACKER_SPIN * HACKER_INTERVAL * spin
+			t = firstShot + shot * HACKER_INTERVAL
 		end
-		t += interval
+	elseif boss == "Naysayer" then
+		-- bubbles rain from the top edge in walls; the gap is centred at gapX
+		while t < phase.EndsAt do
+			local gapX = 0.15 + rng() * 0.7
+			for i = 0, NAYSAYER_BUBBLES - 1 do
+				local x = 0.01 + i * NAYSAYER_SPACING
+				if math.abs(x - gapX) > NAYSAYER_GAP / 2 then
+					fire(enemy.Id, t, x, 0.02, 0, speed * NAYSAYER_SPEED, 0)
+				end
+			end
+			shot += 1
+			t = firstShot + shot * NAYSAYER_ROW_GAP
+		end
+	else
+		local children: { Enemy } = {}
+		for k = 1, 3 do
+			local child = addEnemy("Child", phase.StartsAt, phase.EndsAt, BOSS_X, BOSS_Y, (k - 1) * TAU / 3, cfg.SwarmChildHp)
+			child.ActiveFrom = nil -- dormant until the split
+			table.insert(children, child)
+		end
+		while t < phase.EndsAt do
+			local x, y = BulletHell.EnemyPosition(enemy, t)
+			ring(fire, enemy.Id, t, x, y, rng() * TAU, SWARM_RING, speed * SWARM_RING_SPEED)
+			shot += 1
+			t = firstShot + shot * SWARM_RING_GAP
+		end
+		-- the children's fans, staggered; they only fly after the split
+		for k, child in children do
+			local volley = 0
+			local fireAt = firstShot + (k - 1) * CHILD_VOLLEY / 3
+			while fireAt < phase.EndsAt do
+				local x, y = BulletHell.EnemyPosition(child, fireAt)
+				fan(fire, child.Id, fireAt, x, y, math.atan2(0.15 + rng() * 0.7 - x, LANE_Y - y), CHILD_FAN, speed)
+				volley += 1
+				fireAt = firstShot + (k - 1) * CHILD_VOLLEY / 3 + volley * CHILD_VOLLEY
+			end
+		end
 	end
 end
 
@@ -226,13 +439,38 @@ function BulletHell.New(start: number, seed: number, options: Options, cfg: Conf
 	end
 	addPhase("Boss", cfg.BossSeconds)
 
-	type Shot = { FiredAt: number, X: number, Y: number, VX: number, VY: number, Curve: number, Order: number }
+	type Shot = { FiredAt: number, X: number, Y: number, VX: number, VY: number, Curve: number, Owner: number, Order: number }
 	local shots: { Shot } = {}
+	local enemies: { Enemy } = {}
 	local rng = BulletHell.Rng(seed)
-	for _, phase in phases do
-		emitPhase(phase, cfg, rng, function(firedAt: number, x: number, y: number, vx: number, vy: number, curve: number)
-			table.insert(shots, { FiredAt = firedAt, X = x, Y = y, VX = vx, VY = vy, Curve = curve, Order = #shots + 1 })
-		end)
+	local function fire(owner: number, firedAt: number, x: number, y: number, vx: number, vy: number, curve: number)
+		table.insert(
+			shots,
+			{ FiredAt = firedAt, X = x, Y = y, VX = vx, VY = vy, Curve = curve, Owner = owner, Order = #shots + 1 }
+		)
+	end
+	local function addEnemy(kind: EnemyKind, spawnAt: number, leaveAt: number, x: number, y: number, phase: number, hp: number): Enemy
+		local enemy: Enemy = {
+			Id = #enemies + 1,
+			Kind = kind,
+			SpawnAt = spawnAt,
+			LeaveAt = leaveAt,
+			X = x,
+			Y = y,
+			Phase = phase,
+			Hp = hp,
+			ActiveFrom = spawnAt,
+			KilledAt = nil,
+		}
+		table.insert(enemies, enemy)
+		return enemy
+	end
+	for index, phase in phases do
+		if phase.Kind == "Boss" then
+			emitBoss(phase, options.Boss, cfg, rng, addEnemy, fire)
+		else
+			emitWave(phase, if phase.Kind == "Elite" then 3 else math.min(index, 2), cfg, rng, addEnemy, fire)
+		end
 	end
 	table.sort(shots, function(a: Shot, b: Shot): boolean
 		if a.FiredAt ~= b.FiredAt then
@@ -242,7 +480,7 @@ function BulletHell.New(start: number, seed: number, options: Options, cfg: Conf
 	end)
 	local bullets: { Bullet } = {}
 	for i, shot in shots do
-		bullets[i] = BulletHell.NewBullet(i, shot.FiredAt, shot.X, shot.Y, shot.VX, shot.VY, shot.Curve)
+		bullets[i] = BulletHell.NewBullet(i, shot.FiredAt, shot.X, shot.Y, shot.VX, shot.VY, shot.Curve, shot.Owner)
 	end
 
 	local lives = cfg.Lives + (if options.Loadout.ExtraLife then 1 else 0)
@@ -253,6 +491,11 @@ function BulletHell.New(start: number, seed: number, options: Options, cfg: Conf
 		Config = cfg,
 		Phases = phases,
 		Bullets = bullets,
+		Enemies = enemies,
+		Killed = 0,
+		WeaponShots = {},
+		SplitAt = nil,
+		BossDownAt = nil,
 		Lives = lives,
 		MaxLives = lives,
 		InvulnUntil = start,
@@ -350,17 +593,21 @@ local function hit(b: Battle, bullet: Bullet, t: number)
 	end
 end
 
--- Judges every grid step up to now - LatencyGrace (and no further than the end), then settles the status.
+local live: { Bullet } = {} -- scratch for Tick, reused (Tick never yields or recurses)
+
+-- Judges every grid step up to now - LatencyGrace (and no further than the end or the boss going down), then
+-- settles the status.
 function BulletHell.Tick(b: Battle, now: number)
 	if b.Status ~= "Running" or now ~= now then
 		return
 	end
 	local cfg = b.Config
 	local endStep = math.floor((b.EndsAt - b.StartTime) * STEPS_PER_SECOND + 0.5)
-	local lastStep = math.min(math.floor((now - cfg.LatencyGrace - b.StartTime) * STEPS_PER_SECOND), endStep)
-	if lastStep <= b.JudgedStep then
-		return
+	local bossDownAt = b.BossDownAt
+	if bossDownAt then
+		endStep = math.min(endStep, math.ceil((bossDownAt - b.StartTime) * STEPS_PER_SECOND))
 	end
+	local lastStep = math.min(math.floor((now - cfg.LatencyGrace - b.StartTime) * STEPS_PER_SECOND), endStep)
 	local fromT = b.StartTime + (b.JudgedStep + 1) / STEPS_PER_SECOND
 	local toT = b.StartTime + lastStep / STEPS_PER_SECOND
 
@@ -370,13 +617,13 @@ function BulletHell.Tick(b: Battle, now: number)
 	while bullets[b.BulletCursor] and (bullets[b.BulletCursor].GoneAt < firstT or b.Spent[bullets[b.BulletCursor].Id]) do
 		b.BulletCursor += 1
 	end
-	local live: { Bullet } = {}
+	table.clear(live)
 	for i = b.BulletCursor, #bullets do
 		local bullet = bullets[i]
 		if bullet.FiredAt > toT then
 			break
 		end
-		if bullet.GoneAt >= firstT and not b.Spent[bullet.Id] then
+		if bullet.GoneAt >= firstT and not b.Spent[bullet.Id] and BulletHell.Fired(b, bullet) then
 			table.insert(live, bullet)
 		end
 	end
@@ -421,8 +668,103 @@ function BulletHell.Tick(b: Battle, now: number)
 		end
 	end
 	if b.JudgedStep >= endStep then
-		b.Status = "Shipped" -- time up with lives left (Task 10 adds boss down)
+		b.Status = "Shipped" -- time up or boss down, with lives left
 	end
+end
+
+-- Fire interval and kills per volley for a weapon, or nil if the battle doesn't have it (a wingman needs its hire).
+local function weaponRate(b: Battle, weapon: Weapon): (number?, number)
+	if weapon == "Ship" then
+		return b.Options.Loadout.FireInterval, 1
+	end
+	local weapons = b.Config.Weapons
+	local rules = if weapon == "Spread"
+		then weapons.Spread
+		elseif weapon == "Beam" then weapons.Beam
+		elseif weapon == "Missile" then weapons.Missile
+		else nil
+	if not rules or not table.find(b.Options.Wingmen, rules.Role) then
+		return nil, 0
+	end
+	return rules.Interval, rules.PerShot
+end
+
+local function bossesDown(b: Battle): boolean
+	for _, enemy in b.Enemies do
+		if enemy.Kind ~= "Popcorn" and not enemy.KilledAt then
+			return false
+		end
+	end
+	return true
+end
+
+-- A shot hit an enemy (the client reports its id and the weapon, Ship by default). Valid only if the enemy is active,
+-- alive and on screen, and that weapon can't have fired more shots than its rate allows. One claim takes one HP.
+function BulletHell.Kill(b: Battle, enemyId: number, now: number, weapon: Weapon?): boolean
+	BulletHell.Tick(b, now)
+	local enemy = b.Enemies[enemyId]
+	if b.Status ~= "Running" or now ~= now or not enemy or enemy.KilledAt then
+		return false
+	end
+	local cfg = b.Config
+	local activeFrom = enemy.ActiveFrom
+	if not activeFrom or now < activeFrom + cfg.VisibleDelay or now > enemy.LeaveAt + cfg.LatencyGrace then
+		return false
+	end
+	local chosen: Weapon = weapon or "Ship"
+	local interval, perShot = weaponRate(b, chosen)
+	if not interval then
+		return false
+	end
+	local used = b.WeaponShots[chosen] or 0
+	if used >= math.floor((now - b.StartTime) / interval) * perShot + cfg.ShotBudgetSlack then
+		return false
+	end
+
+	b.WeaponShots[chosen] = used + 1
+	b.Combo += 1
+	b.MaxCombo = math.max(b.MaxCombo, b.Combo)
+	enemy.Hp -= 1
+	if enemy.Kind == "Boss" and b.Options.Boss == "Swarm" and enemy.Hp <= cfg.BossHp / 2 then
+		enemy.Hp = 0 -- the Swarm splits: its dormant children spawn around where it is
+		b.SplitAt = now
+		for _, child in b.Enemies do
+			if child.Kind == "Child" then
+				child.ActiveFrom = now
+			end
+		end
+	end
+	if enemy.Hp <= 0 then
+		enemy.KilledAt = now
+		b.Killed += 1
+		if enemy.Kind ~= "Popcorn" and bossesDown(b) then
+			b.BossDownAt = now
+		end
+	end
+	return true
+end
+
+-- In [0, 2]; feeds Economy.Payout as the battle score.
+function BulletHell.Score(b: Battle): number
+	local accuracy = b.Killed / math.max(#b.Enemies, 1)
+	return math.clamp(
+		0.6 * accuracy
+			+ 0.4 * math.min(b.Grazes / 40, 1)
+			+ 0.5 * math.min(b.MaxCombo / 30, 1)
+			+ 0.5 * math.max(b.Lives, 0) / b.MaxLives,
+		0,
+		2
+	)
+end
+
+function BulletHell.Result(b: Battle): BattleResult
+	return {
+		Status = b.Status,
+		Score = BulletHell.Score(b),
+		Grazes = b.Grazes,
+		MaxCombo = b.MaxCombo,
+		LivesLeft = math.max(b.Lives, 0),
+	}
 end
 
 return BulletHell

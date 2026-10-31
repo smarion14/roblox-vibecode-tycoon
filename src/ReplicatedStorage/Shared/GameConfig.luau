@@ -340,6 +340,13 @@ GameConfig.BULLET_HELL = {
 	BossSeconds = 40,
 	BulletSpeed = 0.32,
 	EliteWaveSeconds = 10,
+	-- Kills: one claim takes one HP. The Swarm splits into 3 children of SwarmChildHp at half BossHp. A claim needs
+	-- the enemy on screen for VisibleDelay; each weapon's claims are capped like Act 2's (Act 2 wingmen carry over).
+	BossHp = 60,
+	SwarmChildHp = 10,
+	VisibleDelay = 0.3,
+	ShotBudgetSlack = 4,
+	Weapons = GameConfig.SQUAD.Weapons,
 }
 
 -- Published cutscene animation ids (see docs/animations-publish-checklist.md). 0 = not published yet, and
