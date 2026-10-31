@@ -286,7 +286,39 @@ local function sideTable(model: Model)
 	trim(cylinder(model, "Coffee", 0.02, 0.32, CFrame.new(0.2, 2.94, -0.1) * UPRIGHT, Color3.fromRGB(70, 40, 25), Enum.Material.SmoothPlastic))
 end
 
+-- Fixed office item: the reception desk with the shop computer and the job phone (their prompts travel with it).
+-- The screen faces local -Z, where the player stands.
+local function prompt(target: BasePart, tag: string, actionText: string, objectText: string)
+	local newPrompt = Instance.new("ProximityPrompt")
+	newPrompt.ActionText = actionText
+	newPrompt.ObjectText = objectText
+	newPrompt.HoldDuration = 0
+	newPrompt.MaxActivationDistance = 10
+	newPrompt.RequiresLineOfSight = false
+	newPrompt.Parent = target
+	CollectionService:AddTag(target, tag)
+end
+
+local function receptionDesk(model: Model)
+	part(model, "ReceptionTop", Vector3.new(5, 0.25, 2.6), CFrame.new(0, 3, 0), COLOR_DESK, Enum.Material.Wood)
+	part(model, "ReceptionFront", Vector3.new(5, 3, 0.2), CFrame.new(0, 1.5, 1.2), COLOR_DESK, Enum.Material.Wood)
+	for _, x in { -2.3, 2.3 } do
+		part(model, "ReceptionLeg", Vector3.new(0.25, 3, 2.4), CFrame.new(x, 1.5, 0), COLOR_BEZEL, Enum.Material.Metal)
+	end
+	part(model, "ShopComputerBezel", Vector3.new(2.6, 1.6, 0.15), CFrame.new(-0.6, 4.1, 0.5), COLOR_BEZEL, Enum.Material.SmoothPlastic)
+	local screen = part(model, "ShopComputer", Vector3.new(2.4, 1.4, 0.1), CFrame.new(-0.6, 4.1, 0.4), COLOR_SCREEN, Enum.Material.Glass)
+	label(screen, Enum.NormalId.Front, "SHOP", COLOR_AMBER, COLOR_SCREEN)
+	nightLight(screen, COLOR_AMBER, 6)
+	prompt(screen, "ShopComputer", "Browse", "Computer")
+	part(model, "ShopComputerStand", Vector3.new(0.3, 0.8, 0.3), CFrame.new(-0.6, 3.5, 0.6), COLOR_BEZEL, Enum.Material.Metal)
+	part(model, "Keyboard", Vector3.new(1.8, 0.1, 0.6), CFrame.new(-0.6, 3.18, -0.5), COLOR_BEZEL, Enum.Material.SmoothPlastic)
+	local phone = part(model, "JobPhone", Vector3.new(0.6, 0.12, 1.1), CFrame.new(1.7, 3.19, -0.3), COLOR_SCREEN, Enum.Material.Glass)
+	nightLight(phone, COLOR_CYAN, 6)
+	prompt(phone, "JobPhone", "Check jobs", "Phone")
+end
+
 local BUILDERS: { [string]: (Model) -> () } = {
+	ReceptionDesk = receptionDesk,
 	CoffeeMachine = coffeeMachine,
 	LoungeCouch = loungeCouch,
 	ArcadeCabinet = arcadeCabinet,

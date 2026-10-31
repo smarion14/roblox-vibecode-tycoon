@@ -19,7 +19,6 @@ local led = Props.led
 local monitor = Props.monitor
 local desk = Props.desk
 local chair = Props.chair
-local plant = Props.plant
 local marker = Props.marker
 local COLOR_CYAN = Props.COLOR_CYAN
 local COLOR_PINK = Props.COLOR_PINK
@@ -194,17 +193,6 @@ local function buildMeetingRoom(contents: Instance, origin: CFrame, half: number
 	return screen
 end
 
--- Reception desk by the door: the shop computer and the job phone.
-local function buildReception(contents: Instance, base: CFrame): (Part, Part)
-	local surface = desk(contents, "ReceptionDesk", 5, 2.6, base)
-	part(contents, "ReceptionFront", Vector3.new(5, 3, 0.2), base * CFrame.new(0, 1.5, -1.3), COLOR_DESK, Enum.Material.Wood)
-	local computer = monitor(contents, "ShopComputer", Vector2.new(2.4, 1.4), surface * CFrame.new(-0.6, 1, -0.4), "SHOP", COLOR_AMBER)
-	part(contents, "Keyboard", Vector3.new(1.8, 0.1, 0.6), surface * CFrame.new(-0.6, 0.05, 0.6), COLOR_BEZEL, Enum.Material.SmoothPlastic)
-	local phone = part(contents, "JobPhone", Vector3.new(0.6, 0.12, 1.1), surface * CFrame.new(1.7, 0.06, 0.3), COLOR_SCREEN, Enum.Material.Glass)
-	glow(phone, COLOR_CYAN, 6)
-	return computer, phone
-end
-
 -- Logo wall, plants, the work-zone carpet and pendant lights. The coffee machine is a buyable decor perk now.
 local function buildDecor(contents: Instance, origin: CFrame, half: number)
 	-- Logo wall on the left: a neon brace mark on a dark panel.
@@ -224,10 +212,8 @@ local function buildDecor(contents: Instance, origin: CFrame, half: number)
 	text.Parent = gui
 	glow(logo, COLOR_PINK, 10)
 
-	plant(contents, origin * CFrame.new(-half + 2.5, 0, half - 2.5))
-	plant(contents, origin * CFrame.new(half - 2.5, 0, half - 2.5))
-	plant(contents, origin * CFrame.new(-half + 2.5, 0, -8))
-	plant(contents, origin * CFrame.new(13.5, 0, -8))
+	-- The reception desk and the corner plants are decor items now (GameConfig.DECOR_DEFAULTS), so players can move
+	-- them, and sell the plants.
 
 	-- Work-zone carpet from the left wall to the meeting room, back wall to z = -10.
 	local carpetLeft, carpetRight = -half + 0.5, 16
@@ -297,9 +283,6 @@ function OfficeLayout.Build(contents: Instance, origin: CFrame, half: number)
 	local deploy = buildMeetingRoom(contents, origin, half)
 	interactable(deploy, "DeployTerminal", "Ship it", "Deploy Terminal")
 
-	local computer, phone = buildReception(contents, origin * CFrame.new(-26, 0, 20) * CFrame.Angles(0, math.rad(90), 0))
-	interactable(computer, "ShopComputer", "Browse", "Computer")
-	interactable(phone, "JobPhone", "Check jobs", "Phone")
 
 	-- The startup's poster by the door; interacting renames the startup.
 	local sign = part(contents, "StartupSign", Vector3.new(4, 3, 0.3), origin * CFrame.new(-24, 4.5, 28) * CFrame.Angles(0, math.pi, 0), COLOR_SCREEN, Enum.Material.SmoothPlastic)

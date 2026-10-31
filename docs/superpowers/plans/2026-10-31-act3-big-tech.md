@@ -240,7 +240,7 @@
 **Interfaces:**
 - Consumes: the shell (from the enclosed-plot change already on main) has `Ceiling`-tagged parts at y = 16 and the front wall, door and windows on the ground floor; `Props` helpers; `Cutscenes.CAMPUS_MARKERS` from Task 3.
 - Produces:
-  - `OfficeLayout.BuildWorkFloor(contents, origin, half)`: stations, desks, reception, poster sign and decor-zone outline, the same as Act 2's. `OfficeLayout.Build` = `BuildWorkFloor` + meeting room + office markers. Act 2 is unchanged.
+  - `OfficeLayout.BuildWorkFloor(contents, origin, half)`: stations, desks, poster sign and decor-zone outline, the same as Act 2's. The reception desk and plants are decor (`GameConfig.DECOR_DEFAULTS`), and the campus ground floor keeps the full-floor `DECOR_ZONE` and its `Blocked` cells. `OfficeLayout.Build` = `BuildWorkFloor` + meeting room + office markers. Act 2 is unchanged.
   - `WorldBuilder.BuildContents(unit, act)`: for act ≥ 3, sets the shell's `Ceiling`-tagged parts to Transparency 1 and CanCollide false, and restores them for acts 1–2. The campus provides its own upper floor slab and roof.
   - **`CampusLayout.Build(contents, origin, half)`:**
     - **Ground floor:**

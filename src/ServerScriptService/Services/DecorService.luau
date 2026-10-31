@@ -65,6 +65,61 @@ local function validLayout(placed: { Decor.Placement }): { Decor.Placement }
 	return kept
 end
 
+local function hasItem(placed: { Decor.Placement }, id: string): boolean
+	for _, entry in placed do
+		if entry.Id == id then
+			return true
+		end
+	end
+	return false
+end
+
+-- Brings a saved layout up to date before it's built, returning the layout and any story flags to set:
+-- 1) saves from before the full-floor grid shift onto it; 2) a new office gets its default items once;
+-- 3) the reception desk (shop and phone) always exists — at its default spot, else the first free cell.
+local function preparedLayout(save: StartupDataModule.PlayerSave): ({ Decor.Placement }, { string })
+	local flags: { string } = {}
+	local placed: { Decor.Placement } = {}
+	local shift = GameConfig.DECOR_LEGACY_SHIFT
+	local legacy = not save.StoryFlags.DecorGridFull
+	for _, entry in save.Decor do
+		table.insert(placed, {
+			Id = entry.Id,
+			X = entry.X + (if legacy then shift.X else 0),
+			Z = entry.Z + (if legacy then shift.Z else 0),
+			R = entry.R,
+		})
+	end
+	if legacy then
+		table.insert(flags, "DecorGridFull")
+	end
+	local kept = validLayout(placed)
+	if not save.StoryFlags.DecorSeeded then
+		for _, entry in GameConfig.DECOR_DEFAULTS do
+			if Decor.CanPlace(kept, GameConfig.DECOR, GameConfig.DECOR_ZONE, entry) then
+				table.insert(kept, table.clone(entry))
+			end
+		end
+		table.insert(flags, "DecorSeeded")
+	end
+	if not hasItem(kept, "ReceptionDesk") then
+		local zone = GameConfig.DECOR_ZONE
+		local candidates: { Decor.Placement } = { table.clone(GameConfig.DECOR_DEFAULTS[1]) }
+		for z = zone.CellsZ - 1, 0, -1 do
+			for x = 0, zone.CellsX - 1 do
+				table.insert(candidates, { Id = "ReceptionDesk", X = x, Z = z, R = 0 })
+			end
+		end
+		for _, candidate in candidates do
+			if Decor.CanPlace(kept, GameConfig.DECOR, zone, candidate) then
+				table.insert(kept, candidate)
+				break
+			end
+		end
+	end
+	return kept, flags
+end
+
 local function cellCFrame(origin: CFrame, entry: Decor.Placement): CFrame?
 	local def = GameConfig.DECOR[entry.Id]
 	if not def then
@@ -137,10 +192,13 @@ local function onUnitBuilt(player: Player)
 	if not save then
 		return
 	end
-	local kept = validLayout(save.Decor)
-	if #kept ~= #save.Decor then
+	if save.Act >= 2 then
+		local kept, flags = preparedLayout(save)
 		StartupDataModule.Update(player, function(current)
 			current.Decor = kept
+			for _, flag in flags do
+				current.StoryFlags[flag] = true
+			end
 		end)
 	end
 	buildDecor(player)
@@ -157,7 +215,7 @@ local function onPlace(player: Player, id: any, x: any, z: any, r: any)
 		return
 	end
 	local def = GameConfig.DECOR[id]
-	if not def then
+	if not def or def.Fixed then
 		reply(player, false, BAD_REQUEST)
 		return
 	end
@@ -235,6 +293,10 @@ local function onSell(player: Player, index: any)
 		return
 	end
 	local def = GameConfig.DECOR[entry.Id]
+	if def and def.Fixed then
+		reply(player, false, "The reception desk stays. Move it instead.")
+		return
+	end
 	local refund = if def then math.floor(def.Price * GameConfig.DECOR_SELL_RATE) else 0
 	StartupDataModule.Update(player, function(current)
 		table.remove(current.Decor, index)

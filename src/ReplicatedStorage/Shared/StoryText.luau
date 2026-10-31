@@ -49,7 +49,7 @@ StoryText.ACT2_TUTORIAL = {
 	{ Title = "Congratulations on getting your own office space!", Body = "No more couch. Here's how running an office works." },
 	{ Title = "Buy stuff", Body = "The computer at reception is your shop. Gear and hires are bought there." },
 	{ Title = "Hire people", Body = "Each hire sits at a desk and builds their station's parts for you. You can still jump on any station to make a better part." },
-	{ Title = "Place furniture", Body = "Press DECORATE to place items in the open area up front. Perks like the coffee machine make your whole team faster." },
+	{ Title = "Place furniture", Body = "Press DECORATE to place items anywhere on the office floor, and to move your reception desk. Perks like the coffee machine make your whole team faster." },
 	{ Title = "Add decoration", Body = "Plants, lamps, rugs, beanbags and more are just for looks. Rotate, move or sell anything you've placed." },
 	{ Title = "Ship it", Body = "Your team builds the parts, but you run every deploy at the meeting-room screen. Hit your valuation goal to finish Act 2." },
 } :: { { Title: string, Body: string } }

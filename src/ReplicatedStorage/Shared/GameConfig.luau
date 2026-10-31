@@ -28,6 +28,7 @@ export type DecorDef = {
 	Price: number,
 	Size: { X: number, Z: number },
 	Perk: { Speed: number?, GradeAChance: number? }?,
+	Fixed: boolean?, -- always present, one only: can be moved but not bought or sold
 }
 
 local GameConfig = {}
@@ -188,12 +189,31 @@ GameConfig.ACT2 = {
 GameConfig.WORKFORCE = { BuildSeconds = 25, Grade = "B", BonusGrade = "A" }
 
 -- Decorate zone: cells of CellSize studs; Offset is the zone's minimum corner in unit-local studs.
-GameConfig.DECOR_ZONE = { CellsX = 14, CellsZ = 12, CellSize = 2, OffsetX = -14, OffsetZ = 4 }
+-- The whole office floor is the decorate grid (30×30 cells of 2 studs, unit-local x/z −30..30). Blocked cell
+-- rectangles keep the work area and doorway clear: the stations, employee desks and meeting room along the back,
+-- the spawn spot inside the door, and the rename poster.
+GameConfig.DECOR_ZONE = {
+	CellsX = 30,
+	CellsZ = 30,
+	CellSize = 2,
+	OffsetX = -30,
+	OffsetZ = -30,
+	Blocked = {
+		{ X = 0, Z = 0, W = 30, D = 9 }, -- stations and employee desks (z −30..−12)
+		{ X = 23, Z = 9, W = 7, D = 1 }, -- meeting room's front edge (x 16..30, z −12..−10)
+		{ X = 13, Z = 28, W = 4, D = 2 }, -- spawn spot inside the door
+		{ X = 2, Z = 28, W = 2, D = 2 }, -- rename poster
+	},
+}
+-- Where Act 2 decor used to live (14×12 cells from x −14, z 4): saves made before the full-floor grid shift by this.
+GameConfig.DECOR_LEGACY_SHIFT = { X = 8, Z = 17 }
 GameConfig.DECOR_MAX_ITEMS = 200
 GameConfig.DECOR_SELL_RATE = 0.5
 
 -- Perks (one of each) and pure decor, all bought with cash.
 GameConfig.DECOR = {
+	-- The reception desk (shop computer and job phone) is placed for you and can be moved but never sold.
+	ReceptionDesk = { Name = "Reception Desk", Price = 0, Size = { X = 3, Z = 2 }, Fixed = true },
 	CoffeeMachine = { Name = "Coffee Machine", Price = 400, Size = { X = 1, Z = 1 }, Perk = { Speed = 0.2 } },
 	LoungeCouch = { Name = "Lounge Couch", Price = 650, Size = { X = 3, Z = 1 }, Perk = { GradeAChance = 0.15 } },
 	ArcadeCabinet = { Name = "Arcade Cabinet", Price = 900, Size = { X = 1, Z = 1 }, Perk = { Speed = 0.1 } },
@@ -209,6 +229,15 @@ GameConfig.DECOR = {
 	CatBed = { Name = "Cat Bed", Price = 250, Size = { X = 1, Z = 1 } },
 	SideTable = { Name = "Side Table", Price = 90, Size = { X = 1, Z = 1 } },
 } :: { [string]: DecorDef }
+
+-- A new office starts with these, all movable; everything but the reception desk can be sold.
+GameConfig.DECOR_DEFAULTS = {
+	{ Id = "ReceptionDesk", X = 1, Z = 23, R = 90 },
+	{ Id = "Plant", X = 0, Z = 29, R = 0 },
+	{ Id = "Plant", X = 29, Z = 29, R = 0 },
+	{ Id = "Plant", X = 0, Z = 11, R = 0 },
+	{ Id = "Plant", X = 21, Z = 11, R = 0 },
+} :: { { Id: string, X: number, Z: number, R: number } }
 
 -- Deploy battle difficulty per act, applied on top of BATTLE_RULES.
 GameConfig.ACT_BATTLE = {

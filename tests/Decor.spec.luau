@@ -69,4 +69,36 @@ tests["office has a cap"] = function()
 	assert(not ok and reason == "Office is full")
 end
 
+local GameConfig = require("../src/ReplicatedStorage/Shared/GameConfig")
+
+tests["reserved cells reject placement"] = function()
+	local zone = { CellsX = 14, CellsZ = 12, Blocked = { { X = 4, Z = 4, W = 2, D = 2 } } }
+	local ok, reason = Decor.CanPlace({}, DECOR, zone, { Id = "Plant", X = 5, Z = 5, R = 0 })
+	assert(not ok and reason == "Reserved")
+	assert(Decor.CanPlace({}, DECOR, zone, { Id = "Plant", X = 6, Z = 5, R = 0 }))
+end
+
+tests["the reception desk is one of a kind"] = function()
+	local catalog = GameConfig.DECOR :: any
+	local placed: { Decor.Placement } = { { Id = "ReceptionDesk", X = 1, Z = 23, R = 90 } }
+	local ok, reason = Decor.CanPlace(placed, catalog, GameConfig.DECOR_ZONE :: any, { Id = "ReceptionDesk", X = 20, Z = 20, R = 0 })
+	assert(not ok and reason == "Already have one")
+	assert(catalog.ReceptionDesk.Fixed == true)
+end
+
+tests["office defaults fit the grid in order"] = function()
+	local catalog = GameConfig.DECOR :: any
+	local placed: { Decor.Placement } = {}
+	for _, entry in GameConfig.DECOR_DEFAULTS do
+		local ok, reason = Decor.CanPlace(placed, catalog, GameConfig.DECOR_ZONE :: any, entry)
+		assert(ok, `{entry.Id} at {entry.X},{entry.Z}: {reason}`)
+		table.insert(placed, entry)
+	end
+	local hasReception = false
+	for _, entry in placed do
+		hasReception = hasReception or entry.Id == "ReceptionDesk"
+	end
+	assert(hasReception)
+end
+
 return tests

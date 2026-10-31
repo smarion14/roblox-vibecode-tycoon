@@ -25,7 +25,7 @@ local Sfx = require(UI:WaitForChild("Sfx"))
 local Theme = require(UI:WaitForChild("Theme"))
 
 local ZONE = GameConfig.DECOR_ZONE
-local CAMERA_HEIGHT = 45
+local CAMERA_HEIGHT = 58 -- high enough to fit the whole 60-stud floor
 local GRID_TRANSPARENCY = 0.6
 local GHOST_TRANSPARENCY = 0.5
 local POLL_SECONDS = 0.25
@@ -621,6 +621,13 @@ local function buildWorld(parent: Folder)
 		local z = ZONE.OffsetZ + index * ZONE.CellSize
 		localPart(parent, Vector3.new(width, 0.05, 0.1), origin * CFrame.new(ZONE.OffsetX + width / 2, 0.03, z), Theme.TYPED, GRID_TRANSPARENCY)
 	end
+	-- Reserved cells (work area, doorway, poster) show in red so nobody wonders why they can't place there.
+	local blocked: { { X: number, Z: number, W: number, D: number } } = ZONE.Blocked or {}
+	for _, rect in blocked do
+		local centerX = ZONE.OffsetX + (rect.X + rect.W / 2) * ZONE.CellSize
+		local centerZ = ZONE.OffsetZ + (rect.Z + rect.D / 2) * ZONE.CellSize
+		localPart(parent, Vector3.new(rect.W * ZONE.CellSize, 0.04, rect.D * ZONE.CellSize), origin * CFrame.new(centerX, 0.02, centerZ), Theme.BUG, 0.75)
+	end
 	local cellSize = ZONE.CellSize - 0.2
 	cursorPart = localPart(parent, Vector3.new(cellSize, 0.06, cellSize), origin, Theme.ACCENT, 0.5)
 	selectHighlight = newHighlight(parent, Theme.ACCENT)
@@ -804,8 +811,11 @@ function DecorateController.Init()
 
 	-- Perks first, then cheapest first.
 	local ids: { string } = {}
-	for id in GameConfig.DECOR do
-		table.insert(ids, id)
+	for id, def in GameConfig.DECOR do
+		-- The reception desk comes with the office; it can be moved but never bought.
+		if not def.Fixed then
+			table.insert(ids, id)
+		end
 	end
 	table.sort(ids, function(a: string, b: string): boolean
 		local defA, defB = GameConfig.DECOR[a], GameConfig.DECOR[b]

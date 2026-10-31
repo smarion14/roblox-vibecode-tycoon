@@ -8,8 +8,10 @@ export type ItemDef = {
 	Price: number,
 	Size: { X: number, Z: number },
 	Perk: { Speed: number?, GradeAChance: number? }?,
+	Fixed: boolean?,
 }
-export type Zone = { CellsX: number, CellsZ: number }
+export type Rect = { X: number, Z: number, W: number, D: number }
+export type Zone = { CellsX: number, CellsZ: number, Blocked: { Rect }? }
 export type Perks = { Speed: number, GradeAChance: number }
 
 -- shortcut: mirrors GameConfig.DECOR_MAX_ITEMS (pure modules cannot require); unify if require-by-string is adopted
@@ -49,6 +51,12 @@ function Decor.CanPlace(
 	if item.X < 0 or item.Z < 0 or item.X + w > zone.CellsX or item.Z + d > zone.CellsZ then
 		return false, "Outside the zone"
 	end
+	local blocked: { Rect } = zone.Blocked or {}
+	for _, rect in blocked do
+		if item.X < rect.X + rect.W and rect.X < item.X + w and item.Z < rect.Z + rect.D and rect.Z < item.Z + d then
+			return false, "Reserved"
+		end
+	end
 
 	local count = 0
 	for index, other in placed do
@@ -56,7 +64,7 @@ function Decor.CanPlace(
 			continue
 		end
 		count += 1
-		if def.Perk and other.Id == item.Id then
+		if (def.Perk or def.Fixed) and other.Id == item.Id then
 			return false, "Already have one"
 		end
 		local otherDef = catalog[other.Id]
