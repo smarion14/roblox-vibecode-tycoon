@@ -3,6 +3,7 @@
 -- Finishing the Act 1 ending moves the player into Act 2 and their office; finishing the Act 2 ending moves them into
 -- Act 3 and the campus. Sibling texts after deploys, paying rent ends Act 1, reaching the valuation goal ends Act 2,
 -- earning the Act 3 goal in deploy payouts sends the finale. The startup sign replays the finale after that.
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -17,7 +18,12 @@ local AssemblyService = require(script.Parent:WaitForChild("AssemblyService"))
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 local StartupNameService = require(script.Parent:WaitForChild("StartupNameService"))
 
+local REPLAY_PAUSE_SECONDS = 90
+
 local ProgressService = {}
+
+-- Players watching the finale replay, to the os.clock() time the pause gives up waiting for its CutsceneDone.
+local replayingUntil: { [Player]: number } = {}
 
 local function beat(player: Player, kind: string, payload: any)
 	RemoteManager.FireClient(RemoteNames.StoryBeat, player, kind, payload)
@@ -71,11 +77,25 @@ local function onReplayEnding(player: Player)
 		return
 	end
 	if Story.NextBeat(storyState(save)) == nil then
+		replayingUntil[player] = os.clock() + REPLAY_PAUSE_SECONDS
 		sendCutscene(player, save, "Finale", true)
 	end
 end
 
+-- IncidentService pauses incidents while this is true.
+function ProgressService.IsReplaying(player: Player): boolean
+	local untilTime = replayingUntil[player]
+	if untilTime and os.clock() >= untilTime then
+		replayingUntil[player] = nil
+		return false
+	end
+	return untilTime ~= nil
+end
+
 local function onCutsceneDone(player: Player, id: any)
+	if id == "Finale" then
+		replayingUntil[player] = nil -- the replay is over even though AcceptDone below rejects it
+	end
 	local save = StartupDataModule.GetSnapshot(player)
 	if type(id) ~= "string" or not save or not Story.AcceptDone(storyState(save), id) then
 		return
@@ -222,6 +242,9 @@ function ProgressService.Start()
 	PlotService.OnPromptTriggered("Sibling", onSibling)
 	RemoteManager.Listen(RemoteNames.CutsceneDone, onCutsceneDone, 2, 1)
 	StartupNameService.OnReplayEnding(onReplayEnding)
+	Players.PlayerRemoving:Connect(function(player: Player)
+		replayingUntil[player] = nil
+	end)
 end
 
 return ProgressService

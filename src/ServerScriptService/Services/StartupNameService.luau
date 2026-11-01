@@ -88,7 +88,7 @@ function StartupNameService.RefreshReplayPrompt(player: Player)
 			prompt.ActionText = "Replay ending"
 			prompt.ObjectText = "Startup Sign"
 			prompt.KeyboardKeyCode = Enum.KeyCode.F
-			prompt.GamepadKeyCode = Enum.KeyCode.ButtonY
+			prompt.GamepadKeyCode = Enum.KeyCode.ButtonR1 -- ButtonX is Rename (default), ButtonY enters decorate mode
 			prompt.UIOffset = Vector2.new(0, 72)
 			prompt.HoldDuration = 0
 			prompt.MaxActivationDistance = 10

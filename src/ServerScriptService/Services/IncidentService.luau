@@ -50,7 +50,7 @@ type Response = {
 	Taps: { Firewall.Tap },
 	Finished: boolean,
 }
-type PlayerState = { Incidents: Incidents.State, Response: Response? }
+type PlayerState = { Incidents: Incidents.State, Response: Response?, PausedAt: number? }
 
 local CONFIG = GameConfig.INCIDENTS
 local TICK_SECONDS = 0.5
@@ -162,6 +162,15 @@ local function ignoredNotice(player: Player, kind: string?, station: string?, re
 	end
 end
 
+local function anyLockLeft(locks: { [string]: number }): boolean
+	for _, unlockAt in locks do
+		if unlockAt > now() then
+			return true
+		end
+	end
+	return false
+end
+
 local function tickPlayer(player: Player)
 	local save = StartupDataModule.GetSnapshot(player)
 	if not save or save.Act < 3 then
@@ -184,7 +193,7 @@ local function tickPlayer(player: Player)
 				RemoteManager.FireClient(RemoteNames.IncidentState, player, nil)
 				setLights(player, nil)
 			end
-			if incidents.Active or next(incidents.Locks) ~= nil or incidents.DrainUntil > now() or incidents.EliteWaves > 0 then
+			if incidents.Active or anyLockLeft(incidents.Locks) or incidents.DrainUntil > now() or incidents.EliteWaves > 0 then
 				notice(player, "The team handled it while you were busy.")
 			end
 		end
@@ -192,6 +201,28 @@ local function tickPlayer(player: Player)
 	end
 	local ps: PlayerState = existing or { Incidents = Incidents.New(now(), nextNumber, freePlay, CONFIG), Response = nil }
 	states[player] = ps
+	-- The finale replay freezes the schedule: nothing new starts and an open alert's clock stops until it ends.
+	if ProgressService.IsReplaying(player) then
+		ps.PausedAt = ps.PausedAt or now()
+		return
+	end
+	local pausedAt = ps.PausedAt
+	if pausedAt then
+		ps.PausedAt = nil
+		local paused = now() - pausedAt
+		local incidents = ps.Incidents
+		incidents.NextAt += paused
+		if incidents.DrainUntil > pausedAt then
+			incidents.DrainUntil += paused
+			incidents.NextDrainAt += paused
+		end
+		local active = incidents.Active
+		if active then
+			active.StartedAt += paused
+			active.Deadline += paused
+			sendState(player, ps)
+		end
+	end
 	local before = ps.Incidents.Active
 	local events = Incidents.Tick(ps.Incidents, now(), isBusy(player), nextNumber, freePlay, save.Hires, CONFIG, GameConfig.COMPONENTS)
 	local repDelta = 0

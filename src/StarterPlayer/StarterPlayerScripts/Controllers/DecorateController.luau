@@ -34,8 +34,8 @@ local SELL_CONFIRM_SECONDS = 3
 local PICK_GUARD_SECONDS = 0.2
 local STICK_PRESS = 0.6
 local STICK_RELEASE = 0.3
--- While one of these is open the player is in a battle, minigame or burst, and can't decorate.
-local BUSY_GUIS = { "Battle", "Minigame", "Burst" }
+-- While one of these is open the player is in a battle, minigame, burst, incident or keynote, and can't decorate.
+local BUSY_GUIS = { "Battle", "BulletHell", "Minigame", "Burst", "Incident", "Conference" }
 local COLOR_OK = Color3.fromRGB(90, 255, 140)
 -- Gamepad shortcut into decorate mode while the button shows; no other controller binds ButtonY.
 local ENTER_ACTION = "DecorateEnter"

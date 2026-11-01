@@ -16,6 +16,9 @@ local CutsceneController = require(script.Parent:WaitForChild("CutsceneControlle
 local NameDialog = require(UI:WaitForChild("NameDialog"))
 
 local TEXT_SECONDS = 5
+-- The deploy that ends an act sends its scene before the battle's results; hold it while these are up (capped).
+local BATTLE_GUIS = { "Battle", "BulletHell", "Results" }
+local SCENE_HOLD_SECONDS = 15
 
 local StoryController = {}
 
@@ -29,6 +32,7 @@ local bannerLayer: Frame
 local milestoneBody: TextLabel
 local milestoneQueue: { { Title: string, Body: string } } = {}
 local milestoneWorker = false
+local scenesHeld = 0
 
 local function showText(message: any)
 	if type(message) ~= "string" then
@@ -61,7 +65,7 @@ local function showMilestone(payload: any)
 	task.spawn(function()
 		task.wait(0.5) -- a cutscene sent with the same deploy gets to start first
 		while #milestoneQueue > 0 do
-			while CutsceneController.IsPlaying() do
+			while scenesHeld > 0 or CutsceneController.IsPlaying() do
 				task.wait(0.25)
 			end
 			local milestone = table.remove(milestoneQueue, 1) :: { Title: string, Body: string }
@@ -103,9 +107,33 @@ local function showPages(pages: { { Title: string, Body: string } }, index: numb
 	Juice.PopIn(cardBody)
 end
 
+local function battleScreenOpen(): boolean
+	local playerGui = Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then
+		return false
+	end
+	for _, name in BATTLE_GUIS do
+		local screen = playerGui:FindFirstChild(name)
+		if screen and screen:IsA("ScreenGui") and screen.Enabled then
+			return true
+		end
+	end
+	return false
+end
+
+local function playScene(payload: any)
+	local heldUntil = os.clock() + SCENE_HOLD_SECONDS
+	scenesHeld += 1
+	while battleScreenOpen() and os.clock() < heldUntil do
+		task.wait(0.25)
+	end
+	scenesHeld -= 1
+	CutsceneController.Play(payload)
+end
+
 local function onBeat(kind: any, payload: any)
 	if kind == "Cutscene" then
-		task.spawn(CutsceneController.Play, payload)
+		task.spawn(playScene, payload)
 	elseif kind == "SiblingText" then
 		showText(payload)
 	elseif kind == "Milestone" then
